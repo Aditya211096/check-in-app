@@ -1,24 +1,25 @@
 # Dependency directories
 node_modules/
-checkin-backend/node_modules/
-checkin-frontend/node_modules/
+checkin-be/node_modules/
+checkin-fe/node_modules/
 
 # Local database files
 *.db
 *.db-journal
-checkin-backend/prisma/*.db
-checkin-backend/prisma/*.db-journal
 
 # Compilation output
 dist/
 build/
-checkin-backend/dist/
-checkin-frontend/dist/
+.next/
+out/
+checkin-be/dist/
 
 # Environment variables
 .env
 .env.local
-checkin-backend/.env
+checkin-be/.env
+checkin-fe/.env.local
+gcp-credentials.json
 
 # Logs
 npm-debug.log*
@@ -30,3 +31,4 @@ yarn-error.log*
 # OS metadata
 .DS_Store
 Thumbs.db
+

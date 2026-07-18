@@ -1,0 +1,45 @@
+name: Deploy BE
+on:
+  push:
+    branches: [main]
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: asia-south1
+  SERVICE: checkin-be
+  IMAGE: asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/checkin/checkin-be
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run build
+      - run: npm test --if-present
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker asia-south1-docker.pkg.dev -q
+      - run: docker build -t $IMAGE:${{ github.sha }} .
+      - run: docker push $IMAGE:${{ github.sha }}
+      - name: Run migrations
+        run: |
+          gcloud run jobs deploy checkin-be-migrate \
+            --image=$IMAGE:${{ github.sha }} \
+            --region=$REGION --command="npx" --args="prisma,migrate,deploy" \
+            --set-cloudsql-instances=${{ secrets.GCP_SQL_INSTANCE }} \
+            --set-secrets="DATABASE_URL=DATABASE_URL:latest" || true
+          gcloud run jobs execute checkin-be-migrate --region=$REGION --wait
+      - run: |
+          gcloud run deploy $SERVICE \
+            --image=$IMAGE:${{ github.sha }} \
+            --region=$REGION --platform=managed \
+            --allow-unauthenticated \
+            --add-cloudsql-instances=${{ secrets.GCP_SQL_INSTANCE }} \
+            --min-instances=0 --max-instances=10 \
+            --set-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,FIREBASE_ADMIN_JSON=FIREBASE_ADMIN_JSON:latest"

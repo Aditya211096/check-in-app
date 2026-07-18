@@ -1,0 +1,18 @@
+FROM node:20-alpine AS base
+FROM base AS deps
+WORKDIR /app
+COPY package.json bun.lockb* package-lock.json* ./
+RUN corepack enable && (npm ci || npm install)
+FROM base AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production PORT=3000
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/public ./public
+EXPOSE 3000
+CMD ["node", "server.js"]

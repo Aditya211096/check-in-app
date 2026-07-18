@@ -1,0 +1,35 @@
+name: Deploy FE
+on:
+  push:
+    branches: [main]
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: asia-south1
+  SERVICE: checkin-fe
+  IMAGE: asia-south1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/checkin/checkin-fe
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker asia-south1-docker.pkg.dev -q
+      - run: docker build -t $IMAGE:${{ github.sha }} .
+      - run: docker push $IMAGE:${{ github.sha }}
+      - run: |
+          gcloud run deploy $SERVICE \
+            --image=$IMAGE:${{ github.sha }} \
+            --region=$REGION --platform=managed \
+            --allow-unauthenticated \
+            --min-instances=0 --max-instances=5 \
+            --set-env-vars="NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}"
