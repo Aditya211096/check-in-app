@@ -6,10 +6,11 @@ import { PropertiesModule } from "./modules/properties/properties.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { CustomerProfileModule } from "./modules/customer-profile/customer-profile.module";
 import { IdsKycModule } from "./modules/ids-kyc/ids-kyc.module";
+import { BookingsModule } from "./modules/bookings/bookings.module";
 
 @Controller()
 class HealthController {
-  @Get("healthz") health() { return { ok: true, tenant: null }; }
+  @Get("healthz") health() { return { ok: true }; }
 }
 
 @Module({
@@ -21,10 +22,12 @@ class HealthController {
     InventoryModule,
     CustomerProfileModule,
     IdsKycModule,
+    BookingsModule,
   ],
   controllers: [HealthController],
 })
 export class AppModule {}
+
 
 
 
