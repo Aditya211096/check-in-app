@@ -7,6 +7,8 @@ import { InventoryModule } from "./modules/inventory/inventory.module";
 import { CustomerProfileModule } from "./modules/customer-profile/customer-profile.module";
 import { IdsKycModule } from "./modules/ids-kyc/ids-kyc.module";
 import { BookingsModule } from "./modules/bookings/bookings.module";
+import { CheckInModule } from "./modules/checkin/checkin.module";
+import { RequestsModule } from "./modules/requests/requests.module";
 
 @Controller()
 class HealthController {
@@ -23,6 +25,8 @@ class HealthController {
     CustomerProfileModule,
     IdsKycModule,
     BookingsModule,
+    CheckInModule,
+    RequestsModule,
   ],
   controllers: [HealthController],
 })
