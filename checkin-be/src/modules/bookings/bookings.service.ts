@@ -41,11 +41,13 @@ export class BookingsService {
       basePrice: room.roomType.basePrice,
       beds: room.beds.map((bed) => {
         const isConflicted = bed.assignments.some((a) => {
-          const active = [
-            BookingStatus.CONFIRMED,
-            BookingStatus.CHECKED_IN,
-            BookingStatus.PAYMENT_PENDING,
-          ].includes(a.booking.status);
+          const active = (
+            [
+              BookingStatus.CONFIRMED,
+              BookingStatus.CHECKED_IN,
+              BookingStatus.PAYMENT_PENDING,
+            ] as string[]
+          ).includes(a.booking.status);
           if (!active) return false;
           const bCheckIn = new Date(a.booking.checkIn);
           const bCheckOut = new Date(a.booking.checkOut);

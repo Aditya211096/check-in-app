@@ -9,6 +9,8 @@ import { IdsKycModule } from "./modules/ids-kyc/ids-kyc.module";
 import { BookingsModule } from "./modules/bookings/bookings.module";
 import { CheckInModule } from "./modules/checkin/checkin.module";
 import { RequestsModule } from "./modules/requests/requests.module";
+import { FeedbackModule } from "./modules/feedback/feedback.module";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
 
 @Controller()
 class HealthController {
@@ -27,6 +29,8 @@ class HealthController {
     BookingsModule,
     CheckInModule,
     RequestsModule,
+    FeedbackModule,
+    NotificationsModule,
   ],
   controllers: [HealthController],
 })
