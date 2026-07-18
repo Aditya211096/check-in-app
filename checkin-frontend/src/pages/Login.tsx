@@ -70,99 +70,101 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="app-screen-frame justify-end">
-      {/* High Fidelity Geometric Sunrise Landscape Background */}
-      <div className="sunrise-landscape">
-        <div className="landscape-band band-sky">
-          <div className="vector-temple-small"></div>
-          <div className="vector-temple"></div>
+    <div className="login-page-wrapper">
+      <div className="app-screen-frame justify-end">
+        {/* High Fidelity Geometric Sunrise Landscape Background */}
+        <div className="sunrise-landscape">
+          <div className="landscape-band band-sky">
+            <div className="vector-temple-small"></div>
+            <div className="vector-temple"></div>
+          </div>
+          <div className="landscape-band band-gold"></div>
+          <div className="landscape-band band-saffron"></div>
+          <div className="landscape-band band-teal">
+            <div className="vector-boat-river"></div>
+          </div>
+          <div className="landscape-band band-clay"></div>
         </div>
-        <div className="landscape-band band-gold"></div>
-        <div className="landscape-band band-saffron"></div>
-        <div className="landscape-band band-teal">
-          <div className="vector-boat-river"></div>
-        </div>
-        <div className="landscape-band band-clay"></div>
-      </div>
 
-      {/* Inputs card overlaying the bottom half of the geometric sunrise */}
-      <motion.div 
-        initial={{ opacity: 0, y: 100 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ type: 'spring', stiffness: 50, damping: 15 }}
-        className="premium-card m-4 relative z-10"
-      >
-        {step === 1 ? (
-          <form onSubmit={handleSendOTP} className="flex flex-col gap-4">
-            <div className="premium-input-container">
-              <label className="premium-input-label">Mobile Number</label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-text-secondary">
-                  +91
-                </span>
-                <input 
-                  type="tel" 
-                  placeholder="Enter 10-digit number" 
-                  value={phoneNumber.replace('+91', '')}
-                  onChange={(e) => setPhoneNumber(`+91${e.target.value}`)}
-                  className="premium-input pl-12"
-                  disabled={loading}
-                />
-              </div>
-            </div>
-
-            {error && <span className="text-xs font-semibold text-primary">{error}</span>}
-
-            <button 
-              type="submit" 
-              className="premium-btn premium-btn-primary w-full mt-2"
-              disabled={loading}
-            >
-              <Smartphone size={18} />
-              {loading ? 'Sending Request...' : 'Send OTP'}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleVerifyOTP} className="flex flex-col gap-4">
-            {isNewUser && (
+        {/* Inputs card overlaying the bottom half of the geometric sunrise */}
+        <motion.div 
+          initial={{ opacity: 0, y: 100 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          transition={{ type: 'spring', stiffness: 50, damping: 15 }}
+          className="premium-card m-4 relative z-10"
+        >
+          {step === 1 ? (
+            <form onSubmit={handleSendOTP} className="flex flex-col gap-4">
               <div className="premium-input-container">
-                <label className="premium-input-label">Full Name</label>
+                <label className="premium-input-label">Mobile Number</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-text-secondary">
+                    +91
+                  </span>
+                  <input 
+                    type="tel" 
+                    placeholder="Enter 10-digit number" 
+                    value={phoneNumber.replace('+91', '')}
+                    onChange={(e) => setPhoneNumber(`+91${e.target.value}`)}
+                    className="premium-input pl-12"
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+
+              {error && <span className="text-xs font-semibold text-primary">{error}</span>}
+
+              <button 
+                type="submit" 
+                className="premium-btn premium-btn-primary w-full mt-2"
+                disabled={loading}
+              >
+                <Smartphone size={18} />
+                {loading ? 'Sending Request...' : 'Send OTP'}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleVerifyOTP} className="flex flex-col gap-4">
+              {isNewUser && (
+                <div className="premium-input-container">
+                  <label className="premium-input-label">Full Name</label>
+                  <input 
+                    type="text" 
+                    placeholder="Enter your full name" 
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="premium-input"
+                    disabled={loading}
+                  />
+                </div>
+              )}
+
+              <div className="premium-input-container">
+                <label className="premium-input-label">Verify OTP</label>
                 <input 
                   type="text" 
-                  placeholder="Enter your full name" 
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="premium-input"
+                  placeholder="Enter OTP (Use 123456)" 
+                  value={otpToken}
+                  onChange={(e) => setOtpToken(e.target.value)}
+                  className="premium-input text-center tracking-widest font-bold"
                   disabled={loading}
                 />
               </div>
-            )}
 
-            <div className="premium-input-container">
-              <label className="premium-input-label">Verify OTP</label>
-              <input 
-                type="text" 
-                placeholder="Enter OTP (Use 123456)" 
-                value={otpToken}
-                onChange={(e) => setOtpToken(e.target.value)}
-                className="premium-input text-center tracking-widest font-bold"
+              {error && <span className="text-xs font-semibold text-primary">{error}</span>}
+
+              <button 
+                type="submit" 
+                className="premium-btn premium-btn-primary w-full mt-2"
                 disabled={loading}
-              />
-            </div>
-
-            {error && <span className="text-xs font-semibold text-primary">{error}</span>}
-
-            <button 
-              type="submit" 
-              className="premium-btn premium-btn-primary w-full mt-2"
-              disabled={loading}
-            >
-              <ShieldCheck size={18} />
-              {loading ? 'Verifying...' : 'Verify & Continue'}
-            </button>
-          </form>
-        )}
-      </motion.div>
+              >
+                <ShieldCheck size={18} />
+                {loading ? 'Verifying...' : 'Verify & Continue'}
+              </button>
+            </form>
+          )}
+        </motion.div>
+      </div>
     </div>
   );
 };

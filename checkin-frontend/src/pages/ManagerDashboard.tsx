@@ -154,7 +154,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ token, user,
         <div className="lg:col-span-2 flex flex-col gap-8">
           
           {/* Rooms Grid Status matrix */}
-          <div className="premium-card">
+          <div className="premium-card overflow-visible">
             <h2 className="text-base font-bold text-dark-navy mb-6 flex items-center gap-2">
               <Home size={18} className="text-teal" /> Property Rooms Status Matrix
             </h2>
@@ -172,7 +172,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ token, user,
                   const checkedInCount = bookings.filter(b => b.roomId === room.id && b.status === 'CHECKED_IN').length;
 
                   return (
-                    <div key={room.id} className={`p-5 border-2 rounded-2xl flex flex-col justify-between transition-all hover:shadow-md ${statusBg}`}>
+                    <div key={room.id} className={`p-5 border-2 rounded-2xl flex flex-col justify-between transition-all hover:shadow-md relative overflow-visible ${statusBg}`}>
                       <div>
                         <div className="flex justify-between items-start">
                           <span className="text-base font-bold text-dark-navy">Room {room.roomNumber}</span>
@@ -219,7 +219,7 @@ export const ManagerDashboard: React.FC<ManagerDashboardProps> = ({ token, user,
 
           {/* Add Room Form (Admin/Owner only) */}
           {isAdmin ? (
-            <div className="premium-card">
+            <div className="premium-card overflow-visible">
               <h2 className="text-base font-bold text-dark-navy mb-4 flex items-center gap-2">
                 <PlusCircle size={18} className="text-secondary" /> Configure New Room Unit
               </h2>

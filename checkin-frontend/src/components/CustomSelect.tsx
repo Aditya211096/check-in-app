@@ -31,7 +31,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({ options, value, onCh
   }, []);
 
   return (
-    <div className="relative w-full" ref={containerRef}>
+    <div className="relative w-full" style={{ zIndex: isOpen ? 999 : 1 }} ref={containerRef}>
       <div 
         className="custom-select-trigger" 
         onClick={() => setIsOpen(!isOpen)}
