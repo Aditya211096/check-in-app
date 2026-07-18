@@ -1,0 +1,190 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPER_ADMIN
+  OWNER
+  MANAGER
+  STAFF
+  KITCHEN
+  HOUSEKEEPING
+  CUSTOMER
+}
+
+enum TaskStatus {
+  PENDING
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  BREACHED
+}
+
+enum BookingStatus {
+  UPCOMING
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
+
+enum OrderStatus {
+  RECEIVED
+  PREPARING
+  ON_THE_WAY
+  DELIVERED
+  CANCELLED
+}
+
+// SaaS Tenant (Property/Hotel)
+model Tenant {
+  id          String    @id @default(uuid())
+  name        String
+  domain      String?   @unique
+  address     String
+  contactNum  String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  users       User[]
+  bookings    Booking[]
+  rooms       Room[]
+  tasks       Task[]
+  orders      Order[]
+}
+
+// User Profiles (All Roles)
+model User {
+  id            String    @id @default(uuid())
+  phoneNumber   String    @unique // Global unique identifier
+  fullName      String
+  role          Role      @default(CUSTOMER)
+  tenantId      String?   
+  tenant        Tenant?   @relation(fields: [tenantId], references: [id])
+  isVerified    Boolean   @default(false)
+  idProofUrl    String?   // Secure GCS reference
+  idDetails     Json?     // OCR-parsed fields (Name, DOB, ID Type, ID Number)
+  idVerifiedAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  bookings      Booking[]  @relation("PrimaryGuest")
+  dependents    Dependent[]
+  assignedTasks Task[]     @relation("AssignedStaff")
+  createdTasks  Task[]     @relation("TaskCreator")
+  feedbacks     Feedback[]
+  orders        Order[]
+
+  @@index([tenantId, role]) // Fast lookup of tenant staff/managers
+}
+
+// Customer Dependents
+model Dependent {
+  id            String    @id @default(uuid())
+  primaryUserId String
+  primaryUser   User      @relation(fields: [primaryUserId], references: [id])
+  fullName      String
+  relationship  String
+  idProofUrl    String?
+  idDetails     Json?     // OCR-parsed details for dependents
+  isVerified    Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+}
+
+// Rooms
+model Room {
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  roomNumber  String
+  roomType    String
+  status      String    @default("AVAILABLE") // CLEANING, OCCUPIED, MAINTENANCE
+  isDormitory Boolean   @default(false)
+  totalBunkBeds Int     @default(0)
+  bookings    Booking[]
+
+  @@unique([tenantId, roomNumber]) // Room numbers are unique per property
+}
+
+// Bookings
+model Booking {
+  id             String        @id @default(uuid())
+  tenantId       String
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+  guestId        String
+  guest          User          @relation("PrimaryGuest", fields: [guestId], references: [id])
+  roomId         String
+  room           Room          @relation(fields: [roomId], references: [id])
+  checkInDate    DateTime
+  checkOutDate   DateTime
+  status         BookingStatus @default(UPCOMING)
+  specialRequests String?       
+  consentToShare Boolean       @default(false) 
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tasks          Task[]
+  orders         Order[]
+
+  @@index([tenantId, status]) // Speed up active stay checks
+  @@index([guestId, checkInDate])
+}
+
+// Maintenance & Help Tasks
+model Task {
+  id            String      @id @default(uuid())
+  tenantId      String
+  tenant         Tenant      @relation(fields: [tenantId], references: [id])
+  bookingId     String
+  booking       Booking     @relation(fields: [bookingId], references: [id])
+  description   String
+  status        TaskStatus  @default(PENDING)
+  creatorId     String      
+  creator       User        @relation("TaskCreator", fields: [creatorId], references: [id])
+  assignedToId  String?     
+  assignedTo    User?       @relation("AssignedStaff", fields: [assignedToId], references: [id])
+  etaMinutes    Int?        
+  etaSetAt      DateTime?
+  resolvedAt    DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([tenantId, status]) // Live tracking indexing
+  @@index([assignedToId, status])
+}
+
+// F&B Kitchen Orders
+model Order {
+  id          String      @id @default(uuid())
+  tenantId    String
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  bookingId   String
+  booking     Booking     @relation(fields: [bookingId], references: [id])
+  guestId     String
+  guest       User        @relation(fields: [guestId], references: [id])
+  items       Json        // Array of {name, quantity, price}
+  totalPrice  Decimal
+  status      OrderStatus @default(RECEIVED)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([tenantId, status])
+  @@index([bookingId])
+}
+
+// Anonymized cross-property sharing feedback
+model Feedback {
+  id            String    @id @default(uuid())
+  guestId       String
+  guest         User      @relation(fields: [guestId], references: [id])
+  rating        Int
+  comments      String?
+  tags          String?  
+  createdAt     DateTime  @default(now())
+
+  @@index([guestId])
+}

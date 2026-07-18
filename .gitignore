@@ -1,0 +1,32 @@
+# Dependency directories
+node_modules/
+checkin-backend/node_modules/
+checkin-frontend/node_modules/
+
+# Local database files
+*.db
+*.db-journal
+checkin-backend/prisma/*.db
+checkin-backend/prisma/*.db-journal
+
+# Compilation output
+dist/
+build/
+checkin-backend/dist/
+checkin-frontend/dist/
+
+# Environment variables
+.env
+.env.local
+checkin-backend/.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.system_generated/
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
