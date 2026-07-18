@@ -4,6 +4,8 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { TenantsModule } from "./modules/tenants/tenants.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
+import { CustomerProfileModule } from "./modules/customer-profile/customer-profile.module";
+import { IdsKycModule } from "./modules/ids-kyc/ids-kyc.module";
 
 @Controller()
 class HealthController {
@@ -11,10 +13,19 @@ class HealthController {
 }
 
 @Module({
-  imports: [PrismaModule, AuthModule, TenantsModule, PropertiesModule, InventoryModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    TenantsModule,
+    PropertiesModule,
+    InventoryModule,
+    CustomerProfileModule,
+    IdsKycModule,
+  ],
   controllers: [HealthController],
 })
 export class AppModule {}
+
 
 
 
