@@ -1,7 +1,7 @@
 FROM node:20-slim AS builder
 WORKDIR /app
 
-# Install OpenSSL for Prisma GLIBC engine support
+# Install OpenSSL for Prisma GLIBC engine
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
@@ -20,12 +20,12 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
+RUN npm ci --omit=dev
+
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 
-RUN npx prisma generate
-
 ENV NODE_ENV=production PORT=8080
 EXPOSE 8080
-CMD ["node", "dist/main.js"]
+CMD ["sh", "-c", "if [ -f dist/src/main.js ]; then node dist/src/main.js; else node dist/main.js; fi"]

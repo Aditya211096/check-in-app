@@ -6,7 +6,7 @@ import * as admin from "firebase-admin";
 
 @Injectable()
 export class AuthService {
-  private firebaseApp: admin.app.App;
+  private firebaseApp: admin.app.App | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
