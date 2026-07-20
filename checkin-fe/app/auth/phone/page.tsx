@@ -39,10 +39,7 @@ export default function PhoneAuth() {
       const res = await fetch(`${baseUrl}/notifications/whatsapp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: `91${cleanPhone}`,
-          message: `Your Traces authentication OTP is: 123456. Valid for 10 minutes.`,
-        }),
+        body: JSON.stringify({ phone: `91${cleanPhone}` }),
       });
       const data = await res.json();
       if (data?.otp) {

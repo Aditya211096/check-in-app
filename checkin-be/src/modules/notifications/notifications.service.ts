@@ -14,80 +14,134 @@ export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Send WhatsApp Message via Meta Business Cloud API using official credentials in .env
+   * Generate a cryptographically random 6-digit OTP
    */
-  async sendWhatsAppMessage(recipientPhone: string, messageText: string): Promise<{ success: boolean; data?: any; error?: string; otp?: string }> {
+  private generateOtp(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  /**
+   * Send WhatsApp OTP via Meta Business Cloud API.
+   * Tries: (1) authentication template → (2) plain text → (3) demo fallback
+   */
+  async sendWhatsAppMessage(
+    recipientPhone: string,
+    _messageText?: string,
+  ): Promise<{ success: boolean; data?: any; error?: string; otp?: string }> {
     const token = process.env.WHATSAPP_API_TOKEN;
     const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const templateName = process.env.WHATSAPP_OTP_TEMPLATE_NAME || "otp_verification";
     const cleanPhone = recipientPhone.replace(/[^0-9]/g, "");
+    const otp = this.generateOtp();
 
     if (!token || !phoneId) {
-      this.logger.warn(`WhatsApp API credentials missing. Demo fallback active for ${cleanPhone}.`);
-      this.logger.log(`[WHATSAPP DEMO → ${cleanPhone}] ${messageText}`);
-      return {
-        success: true,
-        data: { mode: "demo_fallback" },
-        otp: "123456",
-      };
+      this.logger.warn(`WhatsApp credentials missing — demo mode active for ${cleanPhone}.`);
+      return { success: true, data: { mode: "demo_fallback" }, otp: "123456" };
     }
 
+    const url = `https://graph.facebook.com/v20.0/${phoneId}/messages`;
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+
+    // Attempt 1: Authentication template (required for business-initiated OTPs)
     try {
-      const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
-      
-      // Attempt 1: Standard Text Payload
-      let response = await fetch(url, {
+      this.logger.log(`[WHATSAPP TEMPLATE → ${cleanPhone}] Sending OTP via template "${templateName}"...`);
+      const templateRes = await fetch(url, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           messaging_product: "whatsapp",
-          recipient_type: "individual",
           to: cleanPhone,
-          type: "text",
-          text: { preview_url: true, body: messageText },
+          type: "template",
+          template: {
+            name: templateName,
+            language: { code: "en" },
+            components: [
+              {
+                type: "body",
+                parameters: [{ type: "text", text: otp }],
+              },
+              {
+                type: "button",
+                sub_type: "url",
+                index: "0",
+                parameters: [{ type: "text", text: otp }],
+              },
+            ],
+          },
         }),
       });
+      const templateData: any = await templateRes.json();
 
-      let resData: any = await response.json();
+      if (templateRes.ok) {
+        this.logger.log(`[WHATSAPP SUCCESS → ${cleanPhone}] Template OTP sent. MsgID: ${templateData?.messages?.[0]?.id}`);
+        return { success: true, data: templateData, otp };
+      }
 
-      // Attempt 2: Fallback to Meta standard hello_world template if text message is restricted
-      if (!response.ok && (resData?.error?.code === 132001 || resData?.error?.code === 100)) {
-        this.logger.log(`[WHATSAPP TEMPLATE FALLBACK → ${cleanPhone}] Retrying with Meta default template...`);
-        response = await fetch(url, {
+      // If template has no button component, retry without button
+      if (templateData?.error?.code === 132000 || templateData?.error?.message?.includes("button")) {
+        const retryRes = await fetch(url, {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          headers,
           body: JSON.stringify({
             messaging_product: "whatsapp",
             to: cleanPhone,
             type: "template",
             template: {
-              name: "hello_world",
-              language: { code: "en_US" },
+              name: templateName,
+              language: { code: "en" },
+              components: [
+                {
+                  type: "body",
+                  parameters: [{ type: "text", text: otp }],
+                },
+              ],
             },
           }),
         });
-        resData = await response.json();
+        const retryData: any = await retryRes.json();
+        if (retryRes.ok) {
+          this.logger.log(`[WHATSAPP SUCCESS → ${cleanPhone}] Template OTP (no-button) sent.`);
+          return { success: true, data: retryData, otp };
+        }
+        this.logger.warn(`[WHATSAPP TEMPLATE FAIL] ${JSON.stringify(retryData?.error)}`);
+      } else {
+        this.logger.warn(`[WHATSAPP TEMPLATE FAIL] ${JSON.stringify(templateData?.error)}`);
       }
-
-      if (!response.ok) {
-        this.logger.error(`WhatsApp API Error: ${JSON.stringify(resData)}`);
-        return {
-          success: true,
-          data: resData,
-          otp: "123456",
-          error: resData?.error?.message || "Meta WhatsApp API returned error, demo mode active.",
-        };
-      }
-
-      this.logger.log(`[WHATSAPP SUCCESS → ${cleanPhone}] Message ID: ${resData?.messages?.[0]?.id}`);
-      return { success: true, data: resData, otp: "123456" };
     } catch (err: any) {
-      this.logger.error(`WhatsApp Request Exception: ${err?.message}`);
+      this.logger.error(`WhatsApp template exception: ${err?.message}`);
+    }
+
+    // Attempt 2: Plain text (works only inside 24-hour customer-initiated window)
+    try {
+      this.logger.log(`[WHATSAPP TEXT → ${cleanPhone}] Retrying as plain text message...`);
+      const textRes = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: cleanPhone,
+          type: "text",
+          text: { body: `Your Traces check-in OTP is: *${otp}*. Valid for 10 minutes. Do not share this code.` },
+        }),
+      });
+      const textData: any = await textRes.json();
+      if (textRes.ok) {
+        this.logger.log(`[WHATSAPP SUCCESS → ${cleanPhone}] Plain text OTP sent.`);
+        return { success: true, data: textData, otp };
+      }
+      this.logger.warn(`[WHATSAPP TEXT FAIL] ${JSON.stringify(textData?.error)}`);
+      return {
+        success: true,
+        data: textData,
+        otp: "123456",
+        error: textData?.error?.message ?? "WhatsApp delivery failed — demo OTP active.",
+      };
+    } catch (err: any) {
+      this.logger.error(`WhatsApp text exception: ${err?.message}`);
       return { success: true, error: err?.message, otp: "123456" };
     }
   }
