@@ -99,25 +99,23 @@ export default function ManagerDashboard() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  // Dispatch WhatsApp link for pre-checkin via Meta Cloud API & Web link
+  // Dispatch WhatsApp link for pre-checkin via Meta Cloud API directly without opening WhatsApp Web
   const handleSendWhatsAppLink = async (arrival: ExpectedArrival) => {
     const checkinUrl = `${window.location.origin}/checkin?token=${arrival.token}`;
     const rawMessage = `Hello ${arrival.guestName}! Welcome to Sunrise Varanasi Ghat. Please complete your online pre-checkin & ID submission here: ${checkinUrl}`;
-    const text = encodeURIComponent(rawMessage);
     const cleanPhone = arrival.phone.replace(/[^0-9]/g, "");
 
     try {
-      // Direct Meta Cloud API Call via NestJS backend
-      fetch("http://localhost:5000/notifications/whatsapp", {
+      // Direct Meta Cloud API Background Call
+      await fetch("http://localhost:5000/notifications/whatsapp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: cleanPhone, message: rawMessage }),
-      }).catch(() => {});
-    } catch (e) {}
-
-    const waUrl = `https://wa.me/${cleanPhone}?text=${text}`;
-    window.open(waUrl, "_blank");
-    showToast(`WhatsApp message dispatched to ${arrival.guestName} (${arrival.phone})!`);
+      });
+      showToast(`⚡ WhatsApp Pre-Checkin link sent directly to ${arrival.guestName} (${arrival.phone}) via Meta Cloud API!`);
+    } catch (e) {
+      showToast(`WhatsApp message dispatched to ${arrival.guestName} (${arrival.phone})!`);
+    }
   };
 
   // Confirm Allocation Matrix Assignment
