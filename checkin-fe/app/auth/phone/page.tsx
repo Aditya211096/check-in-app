@@ -17,7 +17,8 @@ const PRESET_USER_ROUTES: Record<string, { role: string; name: string; route: st
 export default function PhoneAuth() {
   const router = useRouter();
   const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("123456");
+  const [expectedOtp, setExpectedOtp] = useState("123456"); // OTP returned from backend
+  const [enteredOtp, setEnteredOtp] = useState("");         // OTP typed by user
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -43,11 +44,12 @@ export default function PhoneAuth() {
       });
       const data = await res.json();
       if (data?.otp) {
-        setOtp(data.otp);
+        setExpectedOtp(data.otp);
       }
     } catch (e) {
-      setOtp("123456");
+      setExpectedOtp("123456");
     }
+    setEnteredOtp(""); // always clear input when step changes
 
     setTimeout(() => {
       setLoading(false);
@@ -57,8 +59,12 @@ export default function PhoneAuth() {
 
   const handleOtpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (otp !== "123456" && otp.length !== 6) {
-      setError("Invalid verification code. Enter '123456' for instant verification.");
+    if (enteredOtp.length !== 6) {
+      setError("Please enter the 6-digit code.");
+      return;
+    }
+    if (enteredOtp !== expectedOtp) {
+      setError("Incorrect OTP. Please check your WhatsApp message and try again.");
       return;
     }
     setError("");
@@ -149,19 +155,23 @@ export default function PhoneAuth() {
                 <input
                   type="text"
                   placeholder="Enter 6-digit code"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  value={enteredOtp}
+                  onChange={(e) => setEnteredOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   className="w-full pl-11 pr-4 py-3.5 bg-white/70 border border-[#1C2D37]/10 rounded-xl text-sm focus:outline-none focus:border-[#E76F51]/50 focus:ring-1 focus:ring-[#E76F51]/20 transition-all font-mono font-bold tracking-[0.2em] text-center"
+                  autoFocus
                 />
               </div>
               <p className="text-[10px] text-[#2A9D8F] font-semibold mt-2 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Demo mode OTP: <strong>123456</strong>
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {expectedOtp === "123456"
+                  ? <>Demo OTP: <strong>123456</strong> (WhatsApp not yet configured)</>
+                  : <>OTP sent to your WhatsApp · Test hint: <strong>{expectedOtp}</strong></>}
               </p>
             </div>
 
             <button
               type="submit"
-              disabled={otp.length < 6 || loading}
+              disabled={enteredOtp.length < 6 || loading}
               className="w-full bg-[#2A9D8F] hover:bg-[#248f82] text-white py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:pointer-events-none shadow-lg shadow-[#2A9D8F]/15"
             >
               {loading ? (
