@@ -60,7 +60,6 @@ export default function FeedbackPage() {
 
   return (
     <div className="min-h-screen bg-[#E5E7E6] font-sans text-[#1C2D37]">
-      {/* Nav */}
       <nav className="bg-[#1C2D37]/95 backdrop-blur-sm border-b border-white/5 px-6 py-3 flex items-center gap-3">
         <div className="w-8 h-8 bg-gradient-to-br from-[#E76F51] to-[#F4A261] rounded-full flex items-center justify-center shadow-md shrink-0">
           <Ship className="w-4 h-4 text-white" />
@@ -70,13 +69,11 @@ export default function FeedbackPage() {
 
       <div className="max-w-xl mx-auto px-4 py-10">
         <div className="bg-[#F7F5F0] rounded-[28px] border border-white/50 shadow-xl p-8 space-y-7">
-          {/* Header */}
           <div>
             <h1 className="text-2xl font-serif font-semibold text-[#1C2D37]">How was your stay?</h1>
             <p className="text-sm text-[#1C2D37]/45 mt-1">Sunrise Varanasi Ghat · Jul 18–21, 2026</p>
           </div>
 
-          {/* Star Rating */}
           <div>
             <p className="text-[10px] uppercase tracking-wider font-bold text-[#1C2D37]/35 mb-3">Overall Rating</p>
             <div className="flex gap-2">
@@ -105,7 +102,6 @@ export default function FeedbackPage() {
             )}
           </div>
 
-          {/* Highlight Tags */}
           <div>
             <p className="text-[10px] uppercase tracking-wider font-bold text-[#1C2D37]/35 mb-3">What stood out?</p>
             <div className="flex flex-wrap gap-2">
@@ -125,7 +121,6 @@ export default function FeedbackPage() {
             </div>
           </div>
 
-          {/* Comment */}
           <div>
             <label className="block text-[10px] uppercase tracking-wider font-bold text-[#1C2D37]/35 mb-2">
               <MessageSquare className="w-3.5 h-3.5 inline mr-1" />
@@ -141,7 +136,6 @@ export default function FeedbackPage() {
             <p className="text-[10px] text-[#1C2D37]/30 mt-1 text-right">{comment.length}/500</p>
           </div>
 
-          {/* Anonymous toggle */}
           <div className="flex items-start gap-3 bg-[#1C2D37]/3 p-4 rounded-xl border border-[#1C2D37]/5">
             <Shield className="w-4 h-4 text-[#2A9D8F] shrink-0 mt-0.5" />
             <div className="flex-1">
@@ -160,7 +154,6 @@ export default function FeedbackPage() {
             </div>
           </div>
 
-          {/* Submit */}
           <button
             disabled={rating === 0 || loading}
             onClick={handleSubmit}
