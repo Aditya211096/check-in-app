@@ -40,6 +40,9 @@ jobs:
         run: npm run build
         working-directory: ./checkin-fe
 
+      - name: Add .nojekyll File
+        run: touch ./checkin-fe/out/.nojekyll
+
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
