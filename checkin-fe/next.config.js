@@ -1,11 +1,12 @@
 /** @type {import('next').NextConfig} */
 const withPWA = require("next-pwa")({
   dest: "public",
-  disable: process.env.NODE_ENV === "development",
+  disable: true, // Disable PWA during static GitHub Pages export
 });
 
 module.exports = withPWA({
   reactStrictMode: true,
-  output: "standalone",
+  output: "export",
+  images: { unoptimized: true },
   experimental: { serverActions: { allowedOrigins: ["*"] } },
 });
