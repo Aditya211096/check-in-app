@@ -12,7 +12,13 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService
   ) {
-    const adminConfig = JSON.parse(process.env.FIREBASE_ADMIN_JSON || "{}");
+    let adminConfig: any = {};
+    try {
+      adminConfig = JSON.parse(process.env.FIREBASE_ADMIN_JSON || "{}");
+    } catch {
+      adminConfig = {};
+    }
+
     if (!admin.apps.length) {
       if (adminConfig.private_key) {
         this.firebaseApp = admin.initializeApp({

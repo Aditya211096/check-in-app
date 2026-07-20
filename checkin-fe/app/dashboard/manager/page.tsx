@@ -105,7 +105,8 @@ export default function ManagerDashboard() {
     const cleanPhone = arrival.phone.replace(/[^0-9]/g, "");
 
     try {
-      await fetch("http://localhost:5000/notifications/whatsapp", {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://checkin-backend-531559117699.us-central1.run.app";
+      await fetch(`${baseUrl}/notifications/whatsapp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: cleanPhone, message: rawMessage }),
