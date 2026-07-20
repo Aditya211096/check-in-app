@@ -52,8 +52,24 @@ export default function OwnerDashboard() {
           </div>
           <div>
             <p className="text-white font-semibold text-sm leading-tight">Sunrise Varanasi</p>
-            <p className="text-white/30 text-[10px]">Super Admin Executive</p>
+            <p className="text-white/30 text-[10px]">Dual Role: Yash Sharma</p>
           </div>
+        </div>
+
+        {/* Dual Role Switcher Toggle */}
+        <div className="px-3 py-3 bg-white/5 border-b border-white/5 flex gap-1">
+          <button
+            onClick={() => router.push("/dashboard/manager")}
+            className="flex-1 bg-white/10 hover:bg-white/20 text-white/70 text-[10px] font-bold py-2 rounded-lg text-center transition-colors"
+          >
+            👔 Manager View
+          </button>
+          <button
+            onClick={() => router.push("/dashboard/owner")}
+            className="flex-1 bg-[#E76F51] text-white text-[10px] font-bold py-2 rounded-lg text-center shadow-sm"
+          >
+            🏨 Owner View
+          </button>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">

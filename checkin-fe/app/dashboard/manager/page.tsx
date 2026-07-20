@@ -6,7 +6,7 @@ import {
   Ship, LayoutGrid, Users, ClipboardList, Bell, Settings, LogOut,
   BedDouble, CheckCircle2, Clock, AlertCircle, Wrench, ChevronDown,
   Search, Plus, Filter, RefreshCw, TrendingUp, Home, MessageSquare, Phone,
-  Send, AlertTriangle, ShieldAlert, FileText, CheckCheck, X, Utensils
+  Send, AlertTriangle, ShieldAlert, FileText, CheckCheck, X, Utensils, UserPlus
 } from "lucide-react";
 import { formatLocalDate, getTodayString } from "@/lib/date-utils";
 import { useFeatureFlags } from "@/hooks/use-feature-flags";
@@ -44,8 +44,8 @@ interface ExpectedArrival {
 
 const MOCK_ARRIVALS: ExpectedArrival[] = [
   { id: "arr1", guestName: "Ayushi Aggarwal", phone: "+919660397475", eta: "14:30", roomType: "Sunrise Dormitory", status: "PENDING_ALLOCATION", token: "tok_ayushi_99" },
-  { id: "arr2", guestName: "Aditya Agarwal", phone: "+917073818855", eta: "16:00", roomType: "Deluxe River View", status: "PENDING_ALLOCATION", token: "tok_aditya_88" },
-  { id: "arr3", guestName: "Rohan Verma", phone: "+919899911122", eta: "18:15", roomType: "Standard Heritage", status: "APPROVED", token: "tok_rohan_77", allocatedBed: "Room 102" },
+  { id: "arr2", guestName: "Sudhir Agarwal", phone: "+919810495179", eta: "15:45", roomType: "Deluxe River View", status: "PENDING_ALLOCATION", token: "tok_sudhir_88" },
+  { id: "arr3", guestName: "Aditya Agarwal", phone: "+917073818855", eta: "16:00", roomType: "Deluxe River View", status: "PENDING_ALLOCATION", token: "tok_aditya_77" },
 ];
 
 const MOCK_ROOMS: Room[] = [
@@ -73,14 +73,6 @@ const MOCK_ROOMS: Room[] = [
   },
 ];
 
-const BED_STATUS_CFG: Record<BedStatus, { label: string; dot: string; badge: string; text: string }> = {
-  AVAILABLE:    { label: "Available",     dot: "bg-[#2A9D8F]",   badge: "bg-[#2A9D8F]/10 border-[#2A9D8F]/20", text: "text-[#2A9D8F]" },
-  RESERVED:     { label: "Reserved",      dot: "bg-[#F4A261]",   badge: "bg-[#F4A261]/10 border-[#F4A261]/20", text: "text-[#F4A261]" },
-  OCCUPIED:     { label: "Occupied",      dot: "bg-[#E76F51]",   badge: "bg-[#E76F51]/10 border-[#E76F51]/20", text: "text-[#E76F51]" },
-  DIRTY:        { label: "Dirty",         dot: "bg-amber-400",   badge: "bg-amber-50 border-amber-200",        text: "text-amber-600" },
-  OUT_OF_ORDER: { label: "Out of Order",  dot: "bg-[#1C2D37]/30",badge: "bg-[#1C2D37]/5 border-[#1C2D37]/10", text: "text-[#1C2D37]/40" },
-};
-
 export default function ManagerDashboard() {
   const router = useRouter();
   const { flags } = useFeatureFlags();
@@ -94,19 +86,25 @@ export default function ManagerDashboard() {
   const [selectedBedForAlloc, setSelectedBedForAlloc] = useState<string>("");
   const [toast, setToast] = useState<string | null>(null);
 
+  // Add Guest Booking Modal State
+  const [isAddGuestOpen, setIsAddGuestOpen] = useState(false);
+  const [newGuestName, setNewGuestName] = useState("");
+  const [newGuestPhone, setNewGuestPhone] = useState("");
+  const [newGuestRoomType, setNewGuestRoomType] = useState("Sunrise Dormitory");
+  const [newGuestEta, setNewGuestEta] = useState("14:00");
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3500);
   };
 
-  // Dispatch WhatsApp link for pre-checkin via Meta Cloud API directly without opening WhatsApp Web
+  // Dispatch WhatsApp link for pre-checkin via Meta Cloud API directly
   const handleSendWhatsAppLink = async (arrival: ExpectedArrival) => {
     const checkinUrl = `${window.location.origin}/checkin?token=${arrival.token}`;
     const rawMessage = `Hello ${arrival.guestName}! Welcome to Sunrise Varanasi Ghat. Please complete your online pre-checkin & ID submission here: ${checkinUrl}`;
     const cleanPhone = arrival.phone.replace(/[^0-9]/g, "");
 
     try {
-      // Direct Meta Cloud API Background Call
       await fetch("http://localhost:5000/notifications/whatsapp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -116,6 +114,34 @@ export default function ManagerDashboard() {
     } catch (e) {
       showToast(`WhatsApp message dispatched to ${arrival.guestName} (${arrival.phone})!`);
     }
+  };
+
+  // Create New Guest Arrival & Generate Token
+  const handleCreateGuestBooking = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGuestName || !newGuestPhone) {
+      showToast("Please enter guest name and valid mobile phone number.");
+      return;
+    }
+    const token = `tok_${newGuestName.toLowerCase().replace(/\s+/g, "_")}_${Date.now().toString().slice(-4)}`;
+    const created: ExpectedArrival = {
+      id: `arr_${Date.now()}`,
+      guestName: newGuestName,
+      phone: newGuestPhone.startsWith("+") ? newGuestPhone : `+91${newGuestPhone}`,
+      eta: newGuestEta,
+      roomType: newGuestRoomType,
+      status: "PENDING_ALLOCATION",
+      token,
+    };
+
+    setArrivals([created, ...arrivals]);
+    setIsAddGuestOpen(false);
+    setNewGuestName("");
+    setNewGuestPhone("");
+    showToast(`Created booking for ${created.guestName}! Sending WhatsApp pre-checkin link now...`);
+
+    // Auto-dispatch WhatsApp link to newly added guest
+    handleSendWhatsAppLink(created);
   };
 
   // Confirm Allocation Matrix Assignment
@@ -160,247 +186,321 @@ export default function ManagerDashboard() {
           </div>
           <div>
             <p className="text-white font-semibold text-sm leading-tight">Sunrise Varanasi</p>
-            <p className="text-white/30 text-[10px]">Property Manager</p>
+            <p className="text-white/30 text-[10px]">Dual Role: Yash Sharma</p>
           </div>
+        </div>
+
+        {/* Dual Role Switcher Toggle */}
+        <div className="px-3 py-3 bg-white/5 border-b border-white/5 flex gap-1">
+          <button
+            onClick={() => router.push("/dashboard/manager")}
+            className="flex-1 bg-[#E76F51] text-white text-[10px] font-bold py-2 rounded-lg text-center shadow-sm"
+          >
+            👔 Manager View
+          </button>
+          <button
+            onClick={() => router.push("/dashboard/owner")}
+            className="flex-1 bg-white/10 hover:bg-white/20 text-white/70 text-[10px] font-bold py-2 rounded-lg text-center transition-colors"
+          >
+            🏨 Owner View
+          </button>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
           <button
             onClick={() => setActiveTab("grid")}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === "grid" ? "bg-[#E76F51]/15 text-[#E76F51]" : "text-white/40 hover:bg-white/5 hover:text-white"
+              activeTab === "grid" ? "bg-[#E76F51] text-white shadow-lg shadow-[#E76F51]/20" : "text-white/60 hover:bg-white/5 hover:text-white"
             }`}
           >
             <LayoutGrid className="w-4 h-4" /> Room Grid Inventory
           </button>
+
           <button
             onClick={() => setActiveTab("arrivals")}
             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === "arrivals" ? "bg-[#E76F51]/15 text-[#E76F51]" : "text-white/40 hover:bg-white/5 hover:text-white"
+              activeTab === "arrivals" ? "bg-[#E76F51] text-white shadow-lg shadow-[#E76F51]/20" : "text-white/60 hover:bg-white/5 hover:text-white"
             }`}
           >
-            <span className="flex items-center gap-3"><Users className="w-4 h-4" /> Expected Arrivals</span>
-            <span className="bg-[#E76F51] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+            <span className="flex items-center gap-3">
+              <Users className="w-4 h-4" /> Expected Arrivals
+            </span>
+            <span className="w-5 h-5 bg-[#F4A261] text-[#1C2D37] text-[10px] font-bold rounded-full flex items-center justify-center">
               {arrivals.filter((a) => a.status === "PENDING_ALLOCATION").length}
             </span>
           </button>
+
           <button
             onClick={() => router.push("/dashboard/manager/requests")}
-            className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-semibold text-white/40 hover:bg-white/5 hover:text-white transition-all"
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm text-white/60 hover:bg-white/5 hover:text-white transition-all"
           >
-            <span className="flex items-center gap-3"><ClipboardList className="w-4 h-4" /> Dispatch Hub & Complaints</span>
-            <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">1 SLA</span>
+            <span className="flex items-center gap-3">
+              <Bell className="w-4 h-4" /> Dispatch Hub & Complaints
+            </span>
+            <span className="w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+              1 SLA
+            </span>
           </button>
+
           <button
             onClick={() => router.push("/staff/kitchen")}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 hover:bg-white/5 hover:text-white transition-all"
           >
             <Utensils className="w-4 h-4 text-[#F4A261]" /> Kitchen Display (KDS)
           </button>
-          <button
-            onClick={() => router.push("/dashboard/manager/walk-in")}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 hover:bg-white/5 hover:text-white transition-all"
-          >
-            <Plus className="w-4 h-4 text-[#2A9D8F]" /> Walk-In Check-In
-          </button>
         </nav>
-
-        <div className="px-3 py-4 border-t border-white/5">
-          <button className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/5 text-white/60 text-xs">
-            <Home className="w-3.5 h-3.5" />
-            <span className="flex-1 text-left truncate">Sunrise Varanasi Ghat</span>
-          </button>
-        </div>
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Header */}
-        <header className="bg-[#F7F5F0]/80 backdrop-blur-sm border-b border-[#1C2D37]/5 px-6 py-3.5 flex items-center justify-between shrink-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        <header className="bg-white border-b border-[#1C2D37]/10 px-8 py-4 flex items-center justify-between sticky top-0 z-20">
           <div>
-            <h1 className="font-bold text-[#1C2D37] text-base">Operational Control Dashboard</h1>
+            <h1 className="font-serif font-bold text-xl text-[#1C2D37]">Operational Control Dashboard</h1>
             <p className="text-xs text-[#1C2D37]/45">Live Property Status · {formatLocalDate(getTodayString())}</p>
           </div>
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => router.push("/dashboard/manager/walk-in")}
-              className="bg-[#2A9D8F] text-white text-xs font-semibold px-4 py-2 rounded-xl flex items-center gap-1.5 hover:bg-[#248f82] transition-all shadow-md"
+              onClick={() => setIsAddGuestOpen(true)}
+              className="bg-[#2A9D8F] hover:bg-[#248f82] text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all"
             >
-              <Plus className="w-3.5 h-3.5" /> Walk-In Guest
+              <UserPlus className="w-4 h-4" /> + Add Guest Booking
+            </button>
+            <button
+              onClick={() => router.push("/dashboard/manager/walk-in")}
+              className="bg-[#2A9D8F] hover:bg-[#248f82] text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all"
+            >
+              <Plus className="w-4 h-4" /> Walk-In Guest
             </button>
           </div>
         </header>
 
-        {/* Operational KPI Strip */}
-        <div className="bg-[#1C2D37] px-6 py-3.5 flex items-center gap-6 shrink-0 overflow-x-auto text-white">
-          <div className="flex flex-col">
-            <span className="text-white/40 text-[9px] uppercase tracking-wider font-bold">Occupancy</span>
-            <span className="text-xl font-bold text-[#E76F51]">{Math.round((occupiedCount / allBeds.length) * 100)}%</span>
-            <span className="text-white/40 text-[9px]">{occupiedCount}/{allBeds.length} beds occupied</span>
+        {/* Top KPI Bar */}
+        <div className="bg-[#1C2D37] text-white px-8 py-4 grid grid-cols-4 gap-6 shrink-0">
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-white/40 font-bold block">Occupancy</span>
+            <div className="text-xl font-bold mt-0.5 text-[#F4A261]">
+              {Math.round((occupiedCount / allBeds.length) * 100)}%
+            </div>
+            <span className="text-[10px] text-white/40">{occupiedCount}/{allBeds.length} beds occupied</span>
           </div>
 
-          <div className="h-8 w-[1px] bg-white/10" />
-
-          <div className="flex flex-col">
-            <span className="text-white/40 text-[9px] uppercase tracking-wider font-bold">Complaint Resolution</span>
-            <span className="text-xl font-bold text-[#2A9D8F]">91.6%</span>
-            <span className="text-white/40 text-[9px]">Avg SLA: 9.4 mins</span>
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-white/40 font-bold block">Complaint Resolution</span>
+            <div className="text-xl font-bold mt-0.5 text-[#2A9D8F]">91.6%</div>
+            <span className="text-[10px] text-white/40">Avg SLA: 8.4 mins</span>
           </div>
 
-          <div className="h-8 w-[1px] bg-white/10" />
-
-          <div className="flex flex-col">
-            <span className="text-white/40 text-[9px] uppercase tracking-wider font-bold">Pending Arrivals</span>
-            <span className="text-xl font-bold text-[#F4A261]">{arrivals.filter((a) => a.status === "PENDING_ALLOCATION").length}</span>
-            <span className="text-white/40 text-[9px]">Needs Bed Allocation</span>
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-white/40 font-bold block">Pending Arrivals</span>
+            <div className="text-xl font-bold mt-0.5 text-[#E76F51]">
+              {arrivals.filter((a) => a.status === "PENDING_ALLOCATION").length}
+            </div>
+            <span className="text-[10px] text-white/40">Needs Bed Allocation</span>
           </div>
 
-          <div className="h-8 w-[1px] bg-white/10" />
-
-          <div className="flex flex-col">
-            <span className="text-white/40 text-[9px] uppercase tracking-wider font-bold">Needs Cleaning</span>
-            <span className="text-xl font-bold text-amber-400">{dirtyCount} beds</span>
-            <span className="text-white/40 text-[9px]">Housekeeping queue</span>
+          <div>
+            <span className="text-[10px] uppercase tracking-wider text-white/40 font-bold block">Needs Cleaning</span>
+            <div className="text-xl font-bold mt-0.5 text-white">{dirtyCount} beds</div>
+            <span className="text-[10px] text-white/40">Housekeeping queue</span>
           </div>
         </div>
 
-        {/* Dynamic Content View based on Tab */}
-        {activeTab === "grid" && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {rooms.map((room) => (
-                <div key={room.id} className="bg-[#F7F5F0] rounded-2xl border border-white/50 p-4 space-y-3 shadow-sm">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-bold text-sm text-[#1C2D37]">Room {room.code}</h3>
-                      <p className="text-[10px] text-[#1C2D37]/45">{room.typeName} · Floor {room.floor}</p>
+        {/* Views Content */}
+        <div className="p-8">
+          {activeTab === "grid" && (
+            <div className="space-y-6">
+              <h2 className="font-serif font-bold text-lg text-[#1C2D37]">Live Room & Dorm Bed Grid</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {rooms.map((r) => (
+                  <div key={r.id} className="bg-white rounded-2xl p-5 border border-[#1C2D37]/10 shadow-sm space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-xs font-mono font-bold text-[#E76F51]">{r.code}</span>
+                        <h3 className="font-serif font-bold text-sm text-[#1C2D37]">{r.typeName}</h3>
+                      </div>
+                      <span className="text-[10px] font-bold px-2.5 py-1 bg-[#1C2D37]/5 rounded-full text-[#1C2D37]/60 uppercase">
+                        Floor {r.floor}
+                      </span>
                     </div>
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                      room.kind === "PRIVATE" ? "bg-[#1C2D37]/10 text-[#1C2D37]" : "bg-[#2A9D8F]/10 text-[#2A9D8F]"
-                    }`}>
-                      {room.kind}
-                    </span>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    {room.beds.map((bed) => {
-                      const cfg = BED_STATUS_CFG[bed.status];
-                      return (
-                        <button
-                          key={bed.id}
-                          onClick={() => setSelectedBed({ bed, room })}
-                          className={`p-2 rounded-xl border text-left flex flex-col gap-0.5 ${cfg.badge}`}
-                        >
-                          <span className={`text-[10px] font-bold ${cfg.text}`}>{bed.code}</span>
-                          <span className="text-[9px] text-[#1C2D37]/50 truncate">{bed.guestName ?? cfg.label}</span>
-                        </button>
-                      );
-                    })}
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#1C2D37]/5">
+                      {r.beds.map((b) => (
+                        <div key={b.id} className="bg-[#F7F5F0] p-3 rounded-xl border border-[#1C2D37]/5 space-y-1">
+                          <div className="flex justify-between items-center text-xs font-bold">
+                            <span>{b.code}</span>
+                            <span
+                              className={`w-2 h-2 rounded-full ${
+                                b.status === "AVAILABLE" ? "bg-emerald-500" : b.status === "OCCUPIED" ? "bg-blue-500" : "bg-amber-500"
+                              }`}
+                            />
+                          </div>
+                          <span className="text-[10px] text-[#1C2D37]/50 block">{b.status}</span>
+                          {b.guestName && <p className="text-[11px] font-semibold text-[#1C2D37] truncate">{b.guestName}</p>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Expected Arrivals Tab with Phone Numbers & WhatsApp Trigger */}
-        {activeTab === "arrivals" && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-4 max-w-4xl mx-auto w-full">
-            <div className="flex justify-between items-center mb-2">
+          {activeTab === "arrivals" && (
+            <div className="space-y-6">
               <div>
-                <h2 className="text-lg font-bold font-serif text-[#1C2D37]">Expected Arrivals & Pre-Checkin Queue</h2>
+                <h2 className="font-serif font-bold text-lg text-[#1C2D37]">Expected Arrivals & Pre-Checkin Queue</h2>
                 <p className="text-xs text-[#1C2D37]/50">Send WhatsApp pre-checkin links directly from web app</p>
               </div>
-            </div>
 
-            {arrivals.map((arr) => (
-              <div key={arr.id} className="bg-[#F7F5F0] rounded-2xl border border-white/50 p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-base text-[#1C2D37]">{arr.guestName}</span>
-                    <span className="text-xs font-mono font-semibold text-[#E76F51] bg-[#E76F51]/10 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                      <Phone className="w-3 h-3" /> {arr.phone}
-                    </span>
+              <div className="space-y-3">
+                {arrivals.map((arr) => (
+                  <div key={arr.id} className="bg-white rounded-2xl p-5 border border-[#1C2D37]/10 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-base text-[#1C2D37]">{arr.guestName}</h3>
+                        <span className="text-xs font-mono font-bold text-[#E76F51] bg-[#E76F51]/10 px-2 py-0.5 rounded-md">
+                          {arr.phone}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#1C2D37]/50 mt-1">
+                        Room Type: <strong className="text-[#1C2D37]">{arr.roomType}</strong> · Expected ETA: <strong>{arr.eta}</strong>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => handleSendWhatsAppLink(arr)}
+                        className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-1.5 transition-all"
+                      >
+                        <Send className="w-3.5 h-3.5" /> Send WhatsApp Pre-Checkin
+                      </button>
+
+                      {arr.status === "PENDING_ALLOCATION" ? (
+                        <button
+                          onClick={() => setAllocationModal(arr)}
+                          className="bg-[#E76F51] hover:bg-[#d85c3e] text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-1.5 transition-all"
+                        >
+                          <BedDouble className="w-3.5 h-3.5" /> Assign Room/Bed
+                        </button>
+                      ) : (
+                        <span className="bg-[#2A9D8F]/10 text-[#2A9D8F] font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> {arr.allocatedBed || "Allocated"}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-xs text-[#1C2D37]/50">
-                    Room Type: <strong>{arr.roomType}</strong> · Expected ETA: <strong>{arr.eta}</strong>
-                  </p>
-                  {arr.allocatedBed && (
-                    <p className="text-xs text-[#2A9D8F] font-semibold">Allocated: {arr.allocatedBed}</p>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => handleSendWhatsAppLink(arr)}
-                    className="bg-[#25D366] hover:bg-[#1ebd59] text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md"
-                  >
-                    <Send className="w-3.5 h-3.5" /> Send WhatsApp Pre-Checkin
-                  </button>
-
-                  {arr.status === "PENDING_ALLOCATION" ? (
-                    <button
-                      onClick={() => setAllocationModal(arr)}
-                      className="bg-[#E76F51] hover:bg-[#d85c3e] text-white text-xs font-semibold px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition-all shadow-md"
-                    >
-                      <BedDouble className="w-3.5 h-3.5" /> Assign Room/Bed
-                    </button>
-                  ) : (
-                    <span className="text-xs font-bold text-[#2A9D8F] bg-[#2A9D8F]/10 px-3 py-1.5 rounded-xl border border-[#2A9D8F]/20">
-                      ✓ Approved
-                    </span>
-                  )}
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </main>
 
-      {/* Allocation Matrix Modal */}
-      {allocationModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-[#F7F5F0] rounded-[28px] border border-white/50 p-8 w-full max-w-md space-y-5 shadow-2xl">
-            <div className="flex justify-between items-center">
-              <div>
-                <h3 className="font-bold text-lg font-serif text-[#1C2D37]">Inventory Allocation Matrix</h3>
-                <p className="text-xs text-[#1C2D37]/45 mt-0.5">Assign specific bed for {allocationModal.guestName}</p>
-              </div>
-              <button onClick={() => setAllocationModal(null)} className="text-xl text-[#1C2D37]/40 hover:text-[#1C2D37]">✕</button>
+      {/* Add New Guest Booking Modal */}
+      {isAddGuestOpen && (
+        <div className="fixed inset-0 z-50 bg-[#1C2D37]/70 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl space-y-5">
+            <div className="flex justify-between items-center border-b border-[#1C2D37]/10 pb-3">
+              <h3 className="font-bold text-lg font-serif text-[#1C2D37]">Add New Expected Guest</h3>
+              <button onClick={() => setIsAddGuestOpen(false)} className="text-[#1C2D37]/40 hover:text-[#1C2D37]">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <form onSubmit={handleConfirmAllocation} className="space-y-4">
+            <form onSubmit={handleCreateGuestBooking} className="space-y-4">
               <div>
-                <label className="block text-[10px] uppercase tracking-wider font-bold text-[#1C2D37]/40 mb-1.5">Select Available Bed</label>
-                <select
+                <label className="block text-[10px] uppercase font-bold text-[#1C2D37]/40 mb-1">Guest Full Name</label>
+                <input
+                  type="text"
                   required
-                  value={selectedBedForAlloc}
-                  onChange={(e) => setSelectedBedForAlloc(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/70 border border-[#1C2D37]/10 rounded-xl text-sm font-semibold text-[#1C2D37] focus:outline-none focus:border-[#E76F51]"
+                  placeholder="e.g. Sudhir Agarwal"
+                  value={newGuestName}
+                  onChange={(e) => setNewGuestName(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-[#F7F5F0] border border-[#1C2D37]/10 rounded-xl text-xs text-[#1C2D37] font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-[#1C2D37]/40 mb-1">Mobile Phone Number (WhatsApp)</label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="e.g. +91 9810495179"
+                  value={newGuestPhone}
+                  onChange={(e) => setNewGuestPhone(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-[#F7F5F0] border border-[#1C2D37]/10 rounded-xl text-xs text-[#1C2D37] font-semibold font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-[#1C2D37]/40 mb-1">Room / Dorm Category</label>
+                <select
+                  value={newGuestRoomType}
+                  onChange={(e) => setNewGuestRoomType(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-[#F7F5F0] border border-[#1C2D37]/10 rounded-xl text-xs text-[#1C2D37]"
                 >
-                  <option value="">-- Choose Available Bed --</option>
-                  <option value="DORM-A · Bed A1-Upper">DORM-A · Bed A1-Upper (Sunrise Dormitory)</option>
-                  <option value="DORM-B · Bed B1-Lower">DORM-B · Bed B1-Lower (Sunrise Dormitory)</option>
-                  <option value="Room 102 · Double Bed">Room 102 · Double Bed (Standard Heritage)</option>
+                  <option value="Sunrise Dormitory">Sunrise Dormitory (Bunk Bed)</option>
+                  <option value="Deluxe River View">Deluxe River View (Private)</option>
+                  <option value="Standard Heritage">Standard Heritage (Private)</option>
                 </select>
               </div>
 
-              <div className="pt-2 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setAllocationModal(null)}
-                  className="flex-1 bg-white text-[#1C2D37]/60 py-3 rounded-xl font-semibold text-xs border border-[#1C2D37]/10"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-[#E76F51] text-white py-3 rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-[#E76F51]/20"
-                >
-                  <CheckCircle2 className="w-4 h-4" /> Confirm & Unlock Guest Dashboard
-                </button>
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-[#1C2D37]/40 mb-1">Expected Arrival Time (ETA)</label>
+                <input
+                  type="time"
+                  value={newGuestEta}
+                  onChange={(e) => setNewGuestEta(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-[#F7F5F0] border border-[#1C2D37]/10 rounded-xl text-xs text-[#1C2D37]"
+                />
               </div>
+
+              <button
+                type="submit"
+                className="w-full bg-[#2A9D8F] hover:bg-[#248f82] text-white font-bold text-xs py-3 rounded-xl shadow-lg transition-all"
+              >
+                Create Booking & Auto-Send WhatsApp Link
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Allocation Matrix Modal */}
+      {allocationModal && (
+        <div className="fixed inset-0 z-50 bg-[#1C2D37]/70 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="w-full max-w-lg bg-white rounded-3xl p-6 shadow-2xl space-y-5">
+            <div className="flex justify-between items-center border-b border-[#1C2D37]/10 pb-3">
+              <div>
+                <h3 className="font-bold text-lg font-serif text-[#1C2D37]">Inventory Allocation Matrix</h3>
+                <p className="text-xs text-[#1C2D37]/50">Assign space for {allocationModal.guestName}</p>
+              </div>
+              <button onClick={() => setAllocationModal(null)} className="text-[#1C2D37]/40 hover:text-[#1C2D37]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmAllocation} className="space-y-4">
+              <label className="block text-[10px] uppercase font-bold text-[#1C2D37]/40">Select Available Bed</label>
+              <select
+                value={selectedBedForAlloc}
+                onChange={(e) => setSelectedBedForAlloc(e.target.value)}
+                className="w-full px-4 py-3 bg-[#F7F5F0] border border-[#1C2D37]/10 rounded-xl text-xs font-semibold text-[#1C2D37]"
+              >
+                <option value="">-- Choose Bed --</option>
+                <option value="DORM-A · Bed A1-Upper">DORM-A · Bed A1-Upper (Available)</option>
+                <option value="DORM-B · Bed B1-Lower">DORM-B · Bed B1-Lower (Available)</option>
+                <option value="Room 102 · Double Bed">Room 102 · Double Bed (Available)</option>
+              </select>
+
+              <button
+                type="submit"
+                disabled={!selectedBedForAlloc}
+                className="w-full bg-[#E76F51] hover:bg-[#d85c3e] text-white font-bold text-xs py-3.5 rounded-xl shadow-lg transition-all disabled:opacity-40"
+              >
+                Confirm Allocation & Unlock Guest Portal
+              </button>
             </form>
           </div>
         </div>

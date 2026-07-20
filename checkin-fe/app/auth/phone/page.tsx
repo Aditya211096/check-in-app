@@ -8,8 +8,9 @@ import { Ship, Phone, Key, ArrowRight, CheckCircle2, ShieldAlert } from "lucide-
 const PRESET_USER_ROUTES: Record<string, { role: string; name: string; route: string }> = {
   "7073818855": { role: "SUPER_ADMIN", name: "Aditya Agarwal (App Owner)", route: "/super" },
   "9807289769": { role: "SUPER_ADMIN", name: "Aditya Shubham (App Owner)", route: "/super" },
-  "8586816812": { role: "PROPERTY_OWNER", name: "Yash Sharma (Property Owner)", route: "/dashboard/owner" },
+  "8586816812": { role: "PROPERTY_OWNER", name: "Yash Sharma (Owner & Manager)", route: "/dashboard/manager" },
   "9660397475": { role: "GUEST", name: "Ayushi Aggarwal (Customer)", route: "/stay/bk-001" },
+  "9810495179": { role: "GUEST", name: "Sudhir Agarwal (Customer)", route: "/stay/bk-001" },
   "9553765525": { role: "STAFF", name: "Aditya (Staff - Maintenance)", route: "/staff" },
 };
 
