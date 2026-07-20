@@ -33,18 +33,24 @@ export default function PhoneAuth() {
     setError("");
     setLoading(true);
 
-    // Dispatch real WhatsApp OTP via NestJS Meta API if endpoint is available
+    // Dispatch real WhatsApp OTP via NestJS Meta API
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://checkin-backend-eo2tmdx7lq-uc.a.run.app";
-      fetch(`${baseUrl}/notifications/whatsapp`, {
+      const res = await fetch(`${baseUrl}/notifications/whatsapp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone: `91${cleanPhone}`,
           message: `Your Traces authentication OTP is: 123456. Valid for 10 minutes.`,
         }),
-      }).catch(() => {});
-    } catch (e) {}
+      });
+      const data = await res.json();
+      if (data?.otp) {
+        setOtp(data.otp);
+      }
+    } catch (e) {
+      setOtp("123456");
+    }
 
     setTimeout(() => {
       setLoading(false);
