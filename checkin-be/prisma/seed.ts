@@ -1,16 +1,17 @@
-import { PrismaClient, Role, RoomKind, BedStatus } from "@prisma/client";
+import { PrismaClient, Role } from "@prisma/client";
 
 async function main() {
   const prisma = new PrismaClient();
   console.log("Seeding database with default mock objects and preset accounts...");
 
-  // Preset Accounts
+  // Preset Accounts mapped to valid Prisma Role enum:
+  // SUPER_ADMIN, PROPERTY_ADMIN, MANAGER, STAFF, CUSTOMER
   const presetUsers = [
     { phone: "+917073818855", fullName: "Aditya Agarwal", role: Role.SUPER_ADMIN },
     { phone: "+919807289769", fullName: "Aditya Shubham", role: Role.SUPER_ADMIN },
-    { phone: "+918586816812", fullName: "Yash Sharma", role: Role.PROPERTY_OWNER },
-    { phone: "+919660397475", fullName: "Ayushi Aggarwal", role: Role.GUEST },
-    { phone: "+919810495179", fullName: "Sudhir Agarwal", role: Role.GUEST },
+    { phone: "+918586816812", fullName: "Yash Sharma", role: Role.PROPERTY_ADMIN },
+    { phone: "+919660397475", fullName: "Ayushi Aggarwal", role: Role.CUSTOMER },
+    { phone: "+919810495179", fullName: "Sudhir Agarwal", role: Role.CUSTOMER },
     { phone: "+919553765525", fullName: "Aditya Staff", role: Role.STAFF, subRole: "MAINTENANCE" },
   ];
 

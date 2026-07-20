@@ -45,7 +45,7 @@ export class NotificationsService {
         }),
       });
 
-      const resData = await response.json();
+      const resData: any = await response.json();
       if (!response.ok) {
         this.logger.error(`WhatsApp API Error: ${JSON.stringify(resData)}`);
         return { success: false, error: resData?.error?.message || "Failed to dispatch WhatsApp message" };
