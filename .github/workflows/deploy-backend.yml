@@ -12,6 +12,7 @@ on:
       - main
     paths:
       - 'checkin-be/**'
+  workflow_dispatch:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -44,7 +45,7 @@ jobs:
   deploy_to_cloud_run:
     name: Deploy to GCP Cloud Run
     needs: validate_and_test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code

@@ -7,6 +7,7 @@ on:
     paths:
       - 'checkin-fe/**'
       - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
