@@ -35,7 +35,7 @@ export default function PhoneAuth() {
 
     // Dispatch real WhatsApp OTP via NestJS Meta API if endpoint is available
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://checkin-backend-531559117699.us-central1.run.app";
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://checkin-backend-eo2tmdx7lq-uc.a.run.app";
       fetch(`${baseUrl}/notifications/whatsapp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
