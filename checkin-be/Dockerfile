@@ -1,24 +1,29 @@
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 WORKDIR /app
 
-# Install ALL deps (including dev) for building
+# Install OpenSSL for Prisma GLIBC engine support
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+
 COPY package*.json ./
 RUN npm ci
 
-# Copy source and build
-COPY . .
-RUN npx prisma generate && npm run build
+COPY prisma ./prisma
+RUN npx prisma generate
 
-# --- Production stage ---
-FROM node:20-alpine AS runner
+COPY . .
+RUN npm run build
+
+# --- Production runner stage ---
+FROM node:20-slim AS runner
 WORKDIR /app
+
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Copy built output and prisma client from builder
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 
 ENV NODE_ENV=production PORT=8080
