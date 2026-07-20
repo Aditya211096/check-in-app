@@ -1,7 +1,16 @@
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION (App continuing):", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("UNHANDLED REJECTION (App continuing):", reason);
+});
+
 async function bootstrap() {
+  console.log("Initializing NestJS application...");
   const app = await NestFactory.create(AppModule);
   app.enableCors({
     origin: [

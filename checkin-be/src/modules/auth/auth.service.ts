@@ -19,18 +19,22 @@ export class AuthService {
       adminConfig = {};
     }
 
-    if (!admin.apps.length) {
-      if (adminConfig.private_key) {
-        this.firebaseApp = admin.initializeApp({
-          credential: admin.credential.cert(adminConfig),
-        });
+    try {
+      if (!admin.apps.length) {
+        if (adminConfig.private_key) {
+          this.firebaseApp = admin.initializeApp({
+            credential: admin.credential.cert(adminConfig),
+          });
+        } else {
+          this.firebaseApp = admin.initializeApp({
+            projectId: adminConfig.project_id || process.env.GCP_PROJECT_ID || "traces-checkin-app",
+          });
+        }
       } else {
-        this.firebaseApp = admin.initializeApp({
-          projectId: adminConfig.project_id || process.env.GCP_PROJECT_ID || "traces-checkin-app",
-        });
+        this.firebaseApp = admin.apps[0]!;
       }
-    } else {
-      this.firebaseApp = admin.apps[0]!;
+    } catch (err) {
+      console.warn("Firebase Admin initializeApp skipped/warning:", err);
     }
   }
 

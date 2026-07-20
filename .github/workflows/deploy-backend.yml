@@ -52,13 +52,20 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          DB_URL="${{ secrets.DATABASE_URL }}"
+          if [ -z "$DB_URL" ]; then
+            DB_URL="postgresql://postgres:postgres@127.0.0.1:5432/traces_checkin"
+          fi
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             --platform managed \
             --region ${{ env.REGION }} \
             --allow-unauthenticated \
             --port 8080 \
-            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},WHATSAPP_API_TOKEN=${{ secrets.WHATSAPP_API_TOKEN }},WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }},WHATSAPP_BUSINESS_ACCOUNT_ID=${{ secrets.WHATSAPP_BUSINESS_ACCOUNT_ID }},NODE_ENV=production,ALLOWED_ORIGINS=https://aditya211096.github.io" \
+            --timeout 300 \
+            --memory 512Mi \
+            --cpu 1 \
+            --set-env-vars="DATABASE_URL=${DB_URL},WHATSAPP_API_TOKEN=${{ secrets.WHATSAPP_API_TOKEN }},WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }},WHATSAPP_BUSINESS_ACCOUNT_ID=${{ secrets.WHATSAPP_BUSINESS_ACCOUNT_ID }},NODE_ENV=production,ALLOWED_ORIGINS=https://aditya211096.github.io" \
             --quiet
 
       - name: Show Service URL
