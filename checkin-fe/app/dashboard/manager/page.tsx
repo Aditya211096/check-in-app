@@ -6,7 +6,7 @@ import {
   Ship, LayoutGrid, Users, ClipboardList, Bell, Settings, LogOut,
   BedDouble, CheckCircle2, Clock, AlertCircle, Wrench, ChevronDown,
   Search, Plus, Filter, RefreshCw, TrendingUp, Home, MessageSquare, Phone,
-  Send, AlertTriangle, ShieldAlert, FileText, CheckCheck, X, Utensils, UserPlus
+  Send, AlertTriangle, ShieldAlert, FileText, CheckCheck, X, Utensils, UserPlus, Lock
 } from "lucide-react";
 import { formatLocalDate, getTodayString } from "@/lib/date-utils";
 import { useFeatureFlags } from "@/hooks/use-feature-flags";
@@ -37,15 +37,15 @@ interface ExpectedArrival {
   phone: string;
   eta: string;
   roomType: string;
-  status: "PENDING_ALLOCATION" | "APPROVED" | "CHECKED_IN";
+  status: "PRE_CHECKIN_PENDING" | "PRE_CHECKIN_SUBMITTED" | "APPROVED" | "CHECKED_IN";
   token: string;
   allocatedBed?: string;
 }
 
 const MOCK_ARRIVALS: ExpectedArrival[] = [
-  { id: "arr1", guestName: "Ayushi Aggarwal", phone: "+919660397475", eta: "14:30", roomType: "Sunrise Dormitory", status: "PENDING_ALLOCATION", token: "tok_ayushi_99" },
-  { id: "arr2", guestName: "Sudhir Agarwal", phone: "+919810495179", eta: "15:45", roomType: "Deluxe River View", status: "PENDING_ALLOCATION", token: "tok_sudhir_88" },
-  { id: "arr3", guestName: "Aditya Agarwal", phone: "+917073818855", eta: "16:00", roomType: "Deluxe River View", status: "PENDING_ALLOCATION", token: "tok_aditya_77" },
+  { id: "arr1", guestName: "Ayushi Aggarwal", phone: "+919660397475", eta: "14:30", roomType: "Sunrise Dormitory", status: "PRE_CHECKIN_SUBMITTED", token: "tok_ayushi_99" },
+  { id: "arr2", guestName: "Sudhir Agarwal", phone: "+919810495179", eta: "15:45", roomType: "Deluxe River View", status: "PRE_CHECKIN_PENDING", token: "tok_sudhir_88" },
+  { id: "arr3", guestName: "Aditya Agarwal", phone: "+917073818855", eta: "16:00", roomType: "Deluxe River View", status: "PRE_CHECKIN_PENDING", token: "tok_aditya_77" },
 ];
 
 const MOCK_ROOMS: Room[] = [
@@ -80,8 +80,6 @@ export default function ManagerDashboard() {
   const [activeTab, setActiveTab] = useState<"grid" | "arrivals" | "tabs">("grid");
   const [arrivals, setArrivals] = useState<ExpectedArrival[]>(MOCK_ARRIVALS);
   const [rooms, setRooms] = useState<Room[]>(MOCK_ROOMS);
-  const [search, setSearch] = useState("");
-  const [selectedBed, setSelectedBed] = useState<{ bed: Bed; room: Room } | null>(null);
   const [allocationModal, setAllocationModal] = useState<ExpectedArrival | null>(null);
   const [selectedBedForAlloc, setSelectedBedForAlloc] = useState<string>("");
   const [toast, setToast] = useState<string | null>(null);
@@ -100,7 +98,9 @@ export default function ManagerDashboard() {
 
   // Dispatch WhatsApp link for pre-checkin via Meta Cloud API directly
   const handleSendWhatsAppLink = async (arrival: ExpectedArrival) => {
-    const checkinUrl = `${window.location.origin}/checkin?token=${arrival.token}`;
+    // Generate public GitHub Pages / Vercel link when deployed, or window.location.origin
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://Aditya211096.github.io/check-in-app";
+    const checkinUrl = `${origin}/checkin?token=${arrival.token}`;
     const rawMessage = `Hello ${arrival.guestName}! Welcome to Sunrise Varanasi Ghat. Please complete your online pre-checkin & ID submission here: ${checkinUrl}`;
     const cleanPhone = arrival.phone.replace(/[^0-9]/g, "");
 
@@ -112,7 +112,7 @@ export default function ManagerDashboard() {
       });
       showToast(`⚡ WhatsApp Pre-Checkin link sent directly to ${arrival.guestName} (${arrival.phone}) via Meta Cloud API!`);
     } catch (e) {
-      showToast(`WhatsApp message dispatched to ${arrival.guestName} (${arrival.phone})!`);
+      showToast(`WhatsApp link generated for ${arrival.guestName} (${arrival.phone})!`);
     }
   };
 
@@ -130,7 +130,7 @@ export default function ManagerDashboard() {
       phone: newGuestPhone.startsWith("+") ? newGuestPhone : `+91${newGuestPhone}`,
       eta: newGuestEta,
       roomType: newGuestRoomType,
-      status: "PENDING_ALLOCATION",
+      status: "PRE_CHECKIN_PENDING",
       token,
     };
 
@@ -140,11 +140,10 @@ export default function ManagerDashboard() {
     setNewGuestPhone("");
     showToast(`Created booking for ${created.guestName}! Sending WhatsApp pre-checkin link now...`);
 
-    // Auto-dispatch WhatsApp link to newly added guest
     handleSendWhatsAppLink(created);
   };
 
-  // Confirm Allocation Matrix Assignment
+  // Confirm Optional Allocation Assignment
   const handleConfirmAllocation = (e: React.FormEvent) => {
     e.preventDefault();
     if (!allocationModal || !selectedBedForAlloc) return;
@@ -157,7 +156,7 @@ export default function ManagerDashboard() {
       )
     );
 
-    showToast(`Bed '${selectedBedForAlloc}' allocated to ${allocationModal.guestName}! Customer dashboard unlocked.`);
+    showToast(`Bed '${selectedBedForAlloc}' allocated to ${allocationModal.guestName}!`);
     setAllocationModal(null);
     setSelectedBedForAlloc("");
   };
@@ -165,7 +164,6 @@ export default function ManagerDashboard() {
   // KPIs
   const allBeds = rooms.flatMap((r) => r.beds);
   const occupiedCount = allBeds.filter((b) => b.status === "OCCUPIED").length;
-  const availableCount = allBeds.filter((b) => b.status === "AVAILABLE").length;
   const dirtyCount = allBeds.filter((b) => b.status === "DIRTY").length;
 
   return (
@@ -226,7 +224,7 @@ export default function ManagerDashboard() {
               <Users className="w-4 h-4" /> Expected Arrivals
             </span>
             <span className="w-5 h-5 bg-[#F4A261] text-[#1C2D37] text-[10px] font-bold rounded-full flex items-center justify-center">
-              {arrivals.filter((a) => a.status === "PENDING_ALLOCATION").length}
+              {arrivals.filter((a) => a.status !== "APPROVED").length}
             </span>
           </button>
 
@@ -294,9 +292,9 @@ export default function ManagerDashboard() {
           <div>
             <span className="text-[10px] uppercase tracking-wider text-white/40 font-bold block">Pending Arrivals</span>
             <div className="text-xl font-bold mt-0.5 text-[#E76F51]">
-              {arrivals.filter((a) => a.status === "PENDING_ALLOCATION").length}
+              {arrivals.filter((a) => a.status !== "APPROVED").length}
             </div>
-            <span className="text-[10px] text-white/40">Needs Bed Allocation</span>
+            <span className="text-[10px] text-white/40">Pre-Checkin Queue</span>
           </div>
 
           <div>
@@ -350,7 +348,9 @@ export default function ManagerDashboard() {
             <div className="space-y-6">
               <div>
                 <h2 className="font-serif font-bold text-lg text-[#1C2D37]">Expected Arrivals & Pre-Checkin Queue</h2>
-                <p className="text-xs text-[#1C2D37]/50">Send WhatsApp pre-checkin links directly from web app</p>
+                <p className="text-xs text-[#1C2D37]/50">
+                  Room/Bed assignment unlocks only AFTER guest completes online pre-checkin. Assignment is optional prior to check-in date.
+                </p>
               </div>
 
               <div className="space-y-3">
@@ -362,6 +362,16 @@ export default function ManagerDashboard() {
                         <span className="text-xs font-mono font-bold text-[#E76F51] bg-[#E76F51]/10 px-2 py-0.5 rounded-md">
                           {arr.phone}
                         </span>
+                        {arr.status === "PRE_CHECKIN_PENDING" && (
+                          <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-md">
+                            Pre-Checkin Pending
+                          </span>
+                        )}
+                        {arr.status === "PRE_CHECKIN_SUBMITTED" && (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Pre-Checkin Submitted
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-[#1C2D37]/50 mt-1">
                         Room Type: <strong className="text-[#1C2D37]">{arr.roomType}</strong> · Expected ETA: <strong>{arr.eta}</strong>
@@ -373,19 +383,31 @@ export default function ManagerDashboard() {
                         onClick={() => handleSendWhatsAppLink(arr)}
                         className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-1.5 transition-all"
                       >
-                        <Send className="w-3.5 h-3.5" /> Send WhatsApp Pre-Checkin
+                        <Send className="w-3.5 h-3.5" /> Send WhatsApp Pre-Checkin Link
                       </button>
 
-                      {arr.status === "PENDING_ALLOCATION" ? (
+                      {arr.status === "PRE_CHECKIN_PENDING" && (
+                        <button
+                          disabled
+                          className="bg-gray-100 text-gray-400 font-bold text-xs px-4 py-2.5 rounded-xl border border-gray-200 cursor-not-allowed flex items-center gap-1.5"
+                          title="Room allocation unlocks after customer submits online pre-checkin"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-gray-400" /> Awaiting Guest Pre-Checkin
+                        </button>
+                      )}
+
+                      {arr.status === "PRE_CHECKIN_SUBMITTED" && (
                         <button
                           onClick={() => setAllocationModal(arr)}
                           className="bg-[#E76F51] hover:bg-[#d85c3e] text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md flex items-center gap-1.5 transition-all"
                         >
-                          <BedDouble className="w-3.5 h-3.5" /> Assign Room/Bed
+                          <BedDouble className="w-3.5 h-3.5" /> Assign Room/Bed (Optional)
                         </button>
-                      ) : (
+                      )}
+
+                      {arr.status === "APPROVED" && (
                         <span className="bg-[#2A9D8F]/10 text-[#2A9D8F] font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> {arr.allocatedBed || "Allocated"}
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Allocated: {arr.allocatedBed}
                         </span>
                       )}
                     </div>
@@ -473,8 +495,8 @@ export default function ManagerDashboard() {
           <div className="w-full max-w-lg bg-white rounded-3xl p-6 shadow-2xl space-y-5">
             <div className="flex justify-between items-center border-b border-[#1C2D37]/10 pb-3">
               <div>
-                <h3 className="font-bold text-lg font-serif text-[#1C2D37]">Inventory Allocation Matrix</h3>
-                <p className="text-xs text-[#1C2D37]/50">Assign space for {allocationModal.guestName}</p>
+                <h3 className="font-bold text-lg font-serif text-[#1C2D37]">Inventory Allocation Matrix (Optional)</h3>
+                <p className="text-xs text-[#1C2D37]/50">Assign space for {allocationModal.guestName} (Can also assign on arrival)</p>
               </div>
               <button onClick={() => setAllocationModal(null)} className="text-[#1C2D37]/40 hover:text-[#1C2D37]">
                 <X className="w-5 h-5" />
@@ -482,13 +504,13 @@ export default function ManagerDashboard() {
             </div>
 
             <form onSubmit={handleConfirmAllocation} className="space-y-4">
-              <label className="block text-[10px] uppercase font-bold text-[#1C2D37]/40">Select Available Bed</label>
+              <label className="block text-[10px] uppercase font-bold text-[#1C2D37]/40">Select Available Bed / Room</label>
               <select
                 value={selectedBedForAlloc}
                 onChange={(e) => setSelectedBedForAlloc(e.target.value)}
                 className="w-full px-4 py-3 bg-[#F7F5F0] border border-[#1C2D37]/10 rounded-xl text-xs font-semibold text-[#1C2D37]"
               >
-                <option value="">-- Choose Bed --</option>
+                <option value="">-- Choose Bed / Room --</option>
                 <option value="DORM-A · Bed A1-Upper">DORM-A · Bed A1-Upper (Available)</option>
                 <option value="DORM-B · Bed B1-Lower">DORM-B · Bed B1-Lower (Available)</option>
                 <option value="Room 102 · Double Bed">Room 102 · Double Bed (Available)</option>
@@ -499,7 +521,7 @@ export default function ManagerDashboard() {
                 disabled={!selectedBedForAlloc}
                 className="w-full bg-[#E76F51] hover:bg-[#d85c3e] text-white font-bold text-xs py-3.5 rounded-xl shadow-lg transition-all disabled:opacity-40"
               >
-                Confirm Allocation & Unlock Guest Portal
+                Confirm Optional Allocation
               </button>
             </form>
           </div>
