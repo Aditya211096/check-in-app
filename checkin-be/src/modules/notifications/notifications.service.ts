@@ -139,7 +139,7 @@ export class NotificationsService {
       ),
       this.sendWhatsAppMessage(
         phone,
-        `Hello! Your booking at ${propertyName} is confirmed! ID: ${bookingId.slice(0, 8).toUpperCase()}. Complete online pre-checkin: http://localhost:3000/checkin?token=${bookingId}`
+        `Hello! Your booking at ${propertyName} is confirmed! 🎉 Booking ID: ${bookingId.slice(0, 8).toUpperCase()}. Complete your pre-checkin here: https://aditya211096.github.io/check-in-app/checkin?token=${bookingId}`
       ),
     ]);
   }
