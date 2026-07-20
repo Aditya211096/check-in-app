@@ -1,11 +1,17 @@
-name: Deploy Backend to GCP Cloud Run
+name: Backend CI/CD Pipeline (GCP Cloud Run)
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'checkin-backend/**'
+      - 'checkin-be/**'
+      - '.github/workflows/deploy-backend.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'checkin-be/**'
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -13,23 +19,48 @@ env:
   REGION: us-central1
 
 jobs:
-  deploy:
+  validate_and_test:
+    name: Validate & Build Backend
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'checkin-be/package-lock.json'
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: ./checkin-be
+
+      - name: Build Backend
+        run: npm run build
+        working-directory: ./checkin-be
+
+  deploy_to_cloud_run:
+    name: Deploy to GCP Cloud Run
+    needs: validate_and_test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v1
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
+        uses: google-github-actions/setup-gcloud@v2
 
       - name: Build and Push Docker Image
         run: |
-          gcloud builds submit --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA ./checkin-backend
+          gcloud builds submit --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA ./checkin-be
 
       - name: Deploy to Cloud Run
         run: |
@@ -38,4 +69,4 @@ jobs:
             --platform managed \
             --region $REGION \
             --allow-unauthenticated \
-            --set-env-vars DATABASE_URL=${{ secrets.DATABASE_URL }}
+            --set-env-vars DATABASE_URL=${{ secrets.DATABASE_URL }},WHATSAPP_API_TOKEN=${{ secrets.WHATSAPP_API_TOKEN }},WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }},WHATSAPP_BUSINESS_ACCOUNT_ID=${{ secrets.WHATSAPP_BUSINESS_ACCOUNT_ID }}

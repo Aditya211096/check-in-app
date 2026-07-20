@@ -65,10 +65,26 @@ enum BedStatus {
   OUT_OF_ORDER
 }
 
+enum FoodOrderStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  PREPARING
+  DELIVERED
+}
+
+enum PaymentMethod {
+  PAY_NOW
+  COD
+  ROOM_TAB
+}
+
 model Tenant {
   id            String     @id @default(uuid())
   name          String
   plan          String     @default("STARTER")
+  featureFlags  Json       @default("{}")
+  branding      Json       @default("{}")
   createdAt     DateTime   @default(now())
   properties    Property[]
   users         User[]
@@ -116,101 +132,118 @@ model Room {
 }
 
 model Bed {
-  id       String    @id @default(uuid())
-  tenantId String
-  roomId   String
-  room     Room      @relation(fields: [roomId], references: [id])
-  code     String
-  status   BedStatus @default(AVAILABLE)
+  id          String       @id @default(uuid())
+  tenantId    String
+  roomId      String
+  room        Room         @relation(fields: [roomId], references: [id])
+  code        String
+  status      BedStatus    @default(AVAILABLE)
   assignments BookingBed[]
   @@index([tenantId])
 }
 
+// Historical rate records per room/roomType for Owner financial analysis over time
+model RoomPriceHistory {
+  id            String    @id @default(uuid())
+  tenantId      String
+  propertyId    String
+  roomTypeId    String?
+  bedId         String?
+  pricePerNight Int
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  @@index([tenantId, propertyId, effectiveFrom])
+}
+
 model User {
-  id        String   @id @default(uuid())
-  tenantId  String?
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
-  role      Role
-  phone     String   @unique
-  email     String?
-  fullName  String?
-  disabled  Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id              String           @id @default(uuid())
+  tenantId        String?
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id])
+  role            Role
+  subRole         String?          // COOK | HOUSEKEEPING | MAINTENANCE | RECEPTION
+  phone           String           @unique
+  email           String?
+  fullName        String?
+  disabled        Boolean          @default(false)
+  createdAt       DateTime         @default(now())
   customerProfile CustomerProfile?
 }
 
 // GLOBAL — not tenant-scoped
 model CustomerProfile {
-  id            String        @id @default(uuid())
-  userId        String        @unique
-  user          User          @relation(fields: [userId], references: [id])
-  fullName      String
-  dob           DateTime?
-  address       String?
-  emergency     String?
-  consentShare  Boolean       @default(true)
-  dependents    Dependent[]
-  kycDocuments  KycDocument[]
-  bookings      Booking[]
-  createdAt     DateTime      @default(now())
+  id           String        @id @default(uuid())
+  userId       String        @unique
+  user         User          @relation(fields: [userId], references: [id])
+  fullName     String
+  dob          DateTime?
+  address      String?
+  emergency    String?
+  consentShare Boolean       @default(true)
+  dependents   Dependent[]
+  kycDocuments KycDocument[]
+  bookings     Booking[]
+  createdAt    DateTime      @default(now())
 }
 
 model Dependent {
-  id           String          @id @default(uuid())
-  profileId    String
-  profile      CustomerProfile @relation(fields: [profileId], references: [id])
-  fullName     String
-  relation     String
-  dob          DateTime?
+  id        String          @id @default(uuid())
+  profileId String
+  profile   CustomerProfile @relation(fields: [profileId], references: [id])
+  fullName  String
+  relation  String
+  dob       DateTime?
 }
 
 // GLOBAL — encrypted files in GCS
 model KycDocument {
-  id           String          @id @default(uuid())
-  profileId    String
-  profile      CustomerProfile @relation(fields: [profileId], references: [id])
-  docType      String
-  gcsObject    String          // sha256(userId+salt+name)
-  fileHash     String
-  status       KycStatus       @default(PENDING)
-  expiresAt    DateTime?
-  meta         Json            @default("{}")
-  consents     KycConsent[]
-  createdAt    DateTime        @default(now())
+  id        String          @id @default(uuid())
+  profileId String
+  profile   CustomerProfile @relation(fields: [profileId], references: [id])
+  docType   String
+  gcsObject String // sha256(userId+salt+name)
+  fileHash  String
+  status    KycStatus       @default(PENDING)
+  expiresAt DateTime?
+  meta      Json            @default("{}")
+  consents  KycConsent[]
+  createdAt DateTime        @default(now())
 }
 
 model KycConsent {
-  id          String      @id @default(uuid())
-  documentId  String
-  document    KycDocument @relation(fields: [documentId], references: [id])
-  tenantId    String
-  propertyId  String
-  purpose     String
-  grantedAt   DateTime    @default(now())
-  revokedAt   DateTime?
+  id         String      @id @default(uuid())
+  documentId String
+  document   KycDocument @relation(fields: [documentId], references: [id])
+  tenantId   String
+  propertyId String
+  purpose    String
+  grantedAt  DateTime    @default(now())
+  revokedAt  DateTime?
   @@index([tenantId, propertyId])
 }
 
 model Booking {
-  id           String          @id @default(uuid())
-  tenantId     String
-  propertyId   String
-  property     Property        @relation(fields: [propertyId], references: [id])
-  profileId    String
-  profile      CustomerProfile @relation(fields: [profileId], references: [id])
-  status       BookingStatus   @default(DRAFT)
-  checkIn      DateTime
-  checkOut     DateTime
-  totalAmount  Int             @default(0)
-  currency     String          @default("INR")
-  specialReqs  Json            @default("{}")
-  beds         BookingBed[]
-  guests       BookingGuest[]
-  requests     Request[]
-  complaints   Complaint[]
-  payments     Payment[]
-  feedback     Feedback?
-  createdAt    DateTime        @default(now())
+  id          String         @id @default(uuid())
+  tenantId    String
+  propertyId  String
+  property    Property       @relation(fields: [propertyId], references: [id])
+  profileId   String
+  profile     CustomerProfile @relation(fields: [profileId], references: [id])
+  status      BookingStatus  @default(DRAFT)
+  checkIn     DateTime
+  checkOut    DateTime
+  totalAmount Int            @default(0)
+  currency    String         @default("INR")
+  specialReqs Json           @default("{}")
+  beds        BookingBed[]
+  guests      BookingGuest[]
+  requests    Request[]
+  complaints  Complaint[]
+  foodOrders  FoodOrder[]
+  roomTab     RoomTab?
+  payments    Payment[]
+  feedback    Feedback?
+  createdAt   DateTime       @default(now())
   @@index([tenantId, propertyId, status])
 }
 
@@ -225,30 +258,71 @@ model BookingBed {
 }
 
 model BookingGuest {
-  id           String  @id @default(uuid())
-  tenantId     String
-  bookingId    String
-  booking      Booking @relation(fields: [bookingId], references: [id])
-  fullName     String
-  isPrimary    Boolean @default(false)
-  dependentId  String?
+  id          String  @id @default(uuid())
+  tenantId    String
+  bookingId   String
+  booking     Booking @relation(fields: [bookingId], references: [id])
+  fullName    String
+  isPrimary   Boolean @default(false)
+  dependentId String?
+}
+
+model MenuItem {
+  id         String   @id @default(uuid())
+  tenantId   String
+  propertyId String
+  name       String
+  category   String
+  price      Int
+  available  Boolean  @default(true)
+  image      String?
+  createdAt  DateTime @default(now())
+  @@index([tenantId, propertyId])
+}
+
+model FoodOrder {
+  id                 String          @id @default(uuid())
+  tenantId           String
+  bookingId          String
+  booking            Booking         @relation(fields: [bookingId], references: [id])
+  items              Json
+  totalAmount        Int
+  status             FoodOrderStatus @default(PENDING)
+  customInstructions String?
+  rejectionReason    String?
+  paymentMethod      PaymentMethod   @default(ROOM_TAB)
+  paid               Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  @@index([tenantId, bookingId])
+}
+
+model RoomTab {
+  id          String   @id @default(uuid())
+  tenantId    String
+  bookingId   String   @unique
+  booking     Booking  @relation(fields: [bookingId], references: [id])
+  totalLedger Int      @default(0)
+  status      String   @default("OPEN") // OPEN | SETTLED
+  createdAt   DateTime @default(now())
 }
 
 model Request {
-  id           String       @id @default(uuid())
-  tenantId     String
-  bookingId    String
-  booking      Booking      @relation(fields: [bookingId], references: [id])
-  category     String
-  priority     String       @default("NORMAL")
-  state        RequestState @default(NEW)
-  etaMinutes   Int?
-  assignedToId String?
-  assignedAt   DateTime?
-  ackAt        DateTime?
-  resolvedAt   DateTime?
-  events       ServiceEvent[]
-  createdAt    DateTime     @default(now())
+  id               String       @id @default(uuid())
+  tenantId         String
+  bookingId        String
+  booking          Booking      @relation(fields: [bookingId], references: [id])
+  category         String
+  priority         String       @default("NORMAL")
+  state            RequestState @default(NEW)
+  etaMinutes       Int?
+  voiceNoteUri     String?
+  resolutionRemark String?
+  assignedToId     String?
+  assignedAt       DateTime?
+  ackAt            DateTime?
+  resolvedAt       DateTime?
+  events           ServiceEvent[]
+  createdAt        DateTime     @default(now())
   @@index([tenantId, state])
 }
 
@@ -266,16 +340,16 @@ model Complaint {
 }
 
 model ServiceEvent {
-  id         String   @id @default(uuid())
-  tenantId   String
-  requestId  String?
-  request    Request? @relation(fields: [requestId], references: [id])
-  actorId    String
-  fromState  String?
-  toState    String
-  note       String?
-  photoUri   String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  tenantId  String
+  requestId String?
+  request   Request? @relation(fields: [requestId], references: [id])
+  actorId   String
+  fromState String?
+  toState   String
+  note      String?
+  photoUri  String?
+  createdAt DateTime @default(now())
   @@index([tenantId])
 }
 
@@ -304,14 +378,14 @@ model Payment {
 }
 
 model Notification {
-  id         String   @id @default(uuid())
-  tenantId   String?
-  userId     String
-  event      String
-  channel    String   // push | sms | email | in_app
-  payload    Json
+  id          String    @id @default(uuid())
+  tenantId    String?
+  userId      String
+  event       String
+  channel     String    // push | sms | email | in_app | whatsapp
+  payload     Json
   deliveredAt DateTime?
-  createdAt  DateTime @default(now())
+  createdAt   DateTime  @default(now())
   @@index([userId, createdAt])
 }
 

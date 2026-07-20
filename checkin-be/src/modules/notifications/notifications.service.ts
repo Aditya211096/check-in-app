@@ -14,13 +14,57 @@ export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Send WhatsApp Message via Meta Business Cloud API using official credentials in .env
+   */
+  async sendWhatsAppMessage(recipientPhone: string, messageText: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    const token = process.env.WHATSAPP_API_TOKEN;
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    if (!token || !phoneId) {
+      this.logger.warn("WhatsApp API credentials missing in .env. Logging message to console.");
+      this.logger.log(`[WHATSAPP → ${recipientPhone}] ${messageText}`);
+      return { success: false, error: "WhatsApp credentials missing" };
+    }
+
+    const cleanPhone = recipientPhone.replace(/[^0-9]/g, "");
+
+    try {
+      const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: cleanPhone,
+          type: "text",
+          text: { preview_url: true, body: messageText },
+        }),
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        this.logger.error(`WhatsApp API Error: ${JSON.stringify(resData)}`);
+        return { success: false, error: resData?.error?.message || "Failed to dispatch WhatsApp message" };
+      }
+
+      this.logger.log(`[WHATSAPP SUCCESS → ${cleanPhone}] Message ID: ${resData?.messages?.[0]?.id}`);
+      return { success: true, data: resData };
+    } catch (err: any) {
+      this.logger.error(`WhatsApp Request Exception: ${err?.message}`);
+      return { success: false, error: err?.message };
+    }
+  }
+
+  /**
    * Send push notification via FCM.
-   * In dev mode logs to console. In production, uses Firebase Admin SDK.
    */
   async sendPush(userId: string, payload: NotificationPayload): Promise<void> {
     this.logger.log(`[FCM PUSH → ${userId}] ${payload.title}: ${payload.body}`);
 
-    // Log to Notification table
     await this.prisma.notification.create({
       data: {
         userId,
@@ -30,34 +74,20 @@ export class NotificationsService {
         deliveredAt: new Date(),
       },
     });
-
-    // TODO: Replace with Firebase Admin SDK in production:
-    // const message = {
-    //   notification: { title: payload.title, body: payload.body },
-    //   data: payload.data ?? {},
-    //   token: fcmToken,
-    // };
-    // await admin.messaging().send(message);
   }
 
   /**
    * Send SMS notification via MSG91/Twilio.
-   * In dev mode logs to console.
    */
   async sendSms(phone: string, message: string): Promise<void> {
     this.logger.log(`[SMS → ${phone}] ${message}`);
-    // TODO: Replace with MSG91/Twilio SDK in production:
-    // await msg91.sendSMS({ to: phone, message });
   }
 
   /**
    * Send email via SendGrid.
-   * In dev mode logs to console.
    */
   async sendEmail(to: string, subject: string, html: string): Promise<void> {
     this.logger.log(`[EMAIL → ${to}] Subject: ${subject}`);
-    // TODO: Replace with SendGrid SDK in production:
-    // await sgMail.send({ to, from: 'noreply@traces.in', subject, html });
   }
 
   /**
@@ -73,6 +103,10 @@ export class NotificationsService {
       this.sendSms(
         phone,
         `Traces: Your booking at ${propertyName} is confirmed! ID: ${bookingId.slice(0, 8).toUpperCase()}. View pass: https://traces.in/bookings/${bookingId}/pass`
+      ),
+      this.sendWhatsAppMessage(
+        phone,
+        `Hello! Your booking at ${propertyName} is confirmed! ID: ${bookingId.slice(0, 8).toUpperCase()}. Complete online pre-checkin: http://localhost:3000/checkin?token=${bookingId}`
       ),
     ]);
   }

@@ -2,9 +2,10 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, MapPin, Users, ArrowRight, Ship, Star, Wifi, Coffee, ShowerHead } from "lucide-react";
+import { CalendarDays, MapPin, Users, ArrowRight, Ship, Star, Wifi, Coffee, ShowerHead, AlertCircle } from "lucide-react";
+import { calculateNights, getTodayString, getTomorrowString, validateDateRange } from "@/lib/date-utils";
+import { calculateBookingBreakdown } from "@/lib/financial-utils";
 
-// ── MOCK DATA ── (replaced by live API after auth)
 const MOCK_ROOMS = [
   {
     roomId: "r1",
@@ -12,7 +13,7 @@ const MOCK_ROOMS = [
     roomType: "Deluxe River View",
     kind: "PRIVATE",
     basePrice: 4500,
-    beds: [{ bedId: "b1", bedCode: "Single", available: true }],
+    beds: [{ bedId: "b1", bedCode: "Double Bed", available: true }],
     amenities: ["Wifi", "Coffee", "Shower"],
     rating: 4.8,
     reviews: 42,
@@ -60,19 +61,17 @@ const AMENITY_ICONS: Record<string, React.ReactNode> = {
 
 export default function ExploreRooms() {
   const router = useRouter();
-  const [checkIn, setCheckIn] = useState("");
-  const [checkOut, setCheckOut] = useState("");
+  const [checkIn, setCheckIn] = useState<string>(getTodayString());
+  const [checkOut, setCheckOut] = useState<string>(getTomorrowString());
   const [guests, setGuests] = useState(1);
-  const [searched, setSearched] = useState(false);
+  const [searched, setSearched] = useState(true);
   const [selectedBeds, setSelectedBeds] = useState<Record<string, string[]>>({});
   const [kindFilter, setKindFilter] = useState<"ALL" | "PRIVATE" | "DORM">("ALL");
 
-  const nights =
-    checkIn && checkOut
-      ? Math.max(0, Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000))
-      : 0;
+  const dateValidation = validateDateRange(checkIn, checkOut);
+  const nights = dateValidation.nights;
 
-  const filteredRooms = searched
+  const filteredRooms = searched && dateValidation.isValid
     ? MOCK_ROOMS.filter((r) => kindFilter === "ALL" || r.kind === kindFilter)
     : [];
 
@@ -88,14 +87,24 @@ export default function ExploreRooms() {
   };
 
   const totalBeds = Object.values(selectedBeds).flat().length;
-  const totalAmount = MOCK_ROOMS.reduce((sum, room) => {
-    const beds = selectedBeds[room.roomId]?.length ?? 0;
-    return sum + room.basePrice * beds * Math.max(nights, 1);
-  }, 0);
+
+  const breakdown = MOCK_ROOMS.reduce(
+    (acc, room) => {
+      const beds = selectedBeds[room.roomId]?.length ?? 0;
+      if (beds > 0) {
+        const b = calculateBookingBreakdown(room.basePrice, beds, checkIn, checkOut);
+        acc.subtotal += b.subtotal;
+        acc.tax += b.tax;
+        acc.grandTotal += b.grandTotal;
+      }
+      return acc;
+    },
+    { subtotal: 0, tax: 0, grandTotal: 0 }
+  );
 
   return (
     <div className="min-h-screen bg-[#E5E7E6] text-[#1C2D37] font-sans">
-      {/* ── TOP NAV ── */}
+      {/* Top Nav */}
       <nav className="sticky top-0 z-50 bg-[#1C2D37]/95 backdrop-blur-sm border-b border-white/5 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-gradient-to-br from-[#E76F51] to-[#F4A261] rounded-full flex items-center justify-center shadow-md">
@@ -106,12 +115,6 @@ export default function ExploreRooms() {
         <div className="flex items-center gap-3">
           <button
             className="text-white/60 hover:text-white text-xs transition-colors"
-            onClick={() => router.push("/onboarding/profile")}
-          >
-            My Profile
-          </button>
-          <button
-            className="text-white/60 hover:text-white text-xs transition-colors"
             onClick={() => router.push("/bookings")}
           >
             My Bookings
@@ -119,7 +122,7 @@ export default function ExploreRooms() {
         </div>
       </nav>
 
-      {/* ── HERO SEARCH BAR ── */}
+      {/* Hero Search */}
       <div className="bg-gradient-to-br from-[#1C2D37] to-[#253945] px-6 pt-12 pb-16">
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center gap-2 mb-3">
@@ -131,7 +134,6 @@ export default function ExploreRooms() {
           </h1>
           <p className="text-white/50 text-sm mb-8">Wake up to the Ganga. Wander the ghats. Come home to Sunrise.</p>
 
-          {/* Search Form */}
           <div className="bg-white/10 backdrop-blur-sm border border-white/10 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
             <div className="flex flex-col gap-1">
               <label className="text-white/40 text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5">
@@ -169,26 +171,26 @@ export default function ExploreRooms() {
               />
             </div>
             <button
-              onClick={() => { if (checkIn && checkOut) setSearched(true); }}
-              className="bg-[#E76F51] hover:bg-[#d85c3e] text-white rounded-xl font-semibold text-sm px-6 py-3 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-[#E76F51]/20"
+              onClick={() => setSearched(true)}
+              className="bg-[#E76F51] hover:bg-[#d85c3e] text-white rounded-xl font-semibold text-sm px-6 py-3 flex items-center justify-center gap-2 transition-all shadow-lg shadow-[#E76F51]/20"
             >
               Search Rooms <ArrowRight className="w-4 h-4" />
             </button>
           </div>
+
+          {!dateValidation.isValid && (
+            <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-red-400 bg-red-500/10 border border-red-500/20 px-4 py-2.5 rounded-xl">
+              <AlertCircle className="w-4 h-4 shrink-0" /> {dateValidation.error}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── RESULTS ── */}
-      <div className="max-w-5xl mx-auto px-6 py-8">
-        {!searched ? (
-          <div className="text-center py-20 text-[#1C2D37]/40">
-            <Ship className="w-12 h-12 mx-auto mb-4 opacity-30 animate-bounce" />
-            <p className="text-sm">Enter your dates above to explore available rooms</p>
-          </div>
-        ) : (
+      {/* Results */}
+      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+        {dateValidation.isValid && (
           <>
-            {/* Filter Tabs */}
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between">
               <p className="text-sm text-[#1C2D37]/60">
                 <span className="font-semibold text-[#1C2D37]">{filteredRooms.length} spaces</span> available · {nights} night{nights !== 1 ? "s" : ""}
               </p>
@@ -198,9 +200,7 @@ export default function ExploreRooms() {
                     key={k}
                     onClick={() => setKindFilter(k)}
                     className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                      kindFilter === k
-                        ? "bg-[#1C2D37] text-white"
-                        : "bg-white/60 text-[#1C2D37]/60 hover:bg-white"
+                      kindFilter === k ? "bg-[#1C2D37] text-white" : "bg-white/60 text-[#1C2D37]/60 hover:bg-white"
                     }`}
                   >
                     {k === "ALL" ? "All Types" : k === "PRIVATE" ? "Private Room" : "Dormitory"}
@@ -209,24 +209,16 @@ export default function ExploreRooms() {
               </div>
             </div>
 
-            {/* Room Cards */}
             <div className="space-y-5">
               {filteredRooms.map((room) => (
                 <div
                   key={room.roomId}
                   className="bg-[#F7F5F0] rounded-[24px] border border-white/40 shadow-lg overflow-hidden flex flex-col md:flex-row transition-all hover:shadow-xl"
                 >
-                  {/* Image */}
                   <div className="md:w-72 h-52 md:h-auto shrink-0 relative">
                     <img src={room.image} alt={room.roomType} className="w-full h-full object-cover" />
-                    <span className={`absolute top-3 left-3 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${
-                      room.kind === "PRIVATE" ? "bg-[#1C2D37] text-white" : "bg-[#2A9D8F] text-white"
-                    }`}>
-                      {room.kind === "PRIVATE" ? "Private" : "Dormitory"}
-                    </span>
                   </div>
 
-                  {/* Content */}
                   <div className="flex-1 p-6 flex flex-col justify-between">
                     <div>
                       <div className="flex items-start justify-between gap-4 mb-2">
@@ -236,25 +228,13 @@ export default function ExploreRooms() {
                         </div>
                         <div className="text-right shrink-0">
                           <div className="text-lg font-bold text-[#1C2D37]">₹{room.basePrice.toLocaleString()}</div>
-                          <div className="text-[10px] text-[#1C2D37]/40">per bed / night</div>
+                          <div className="text-[10px] text-[#1C2D37]/40">per night</div>
                         </div>
                       </div>
 
                       <p className="text-xs text-[#1C2D37]/60 mb-4 leading-relaxed">{room.description}</p>
 
-                      {/* Amenities */}
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {room.amenities.map((a) => (
-                          <span key={a} className="flex items-center gap-1.5 bg-[#E5E7E6] px-2.5 py-1 rounded-full text-[10px] text-[#1C2D37]/70 font-medium">
-                            {AMENITY_ICONS[a]} {a}
-                          </span>
-                        ))}
-                        <span className="flex items-center gap-1 bg-[#F4A261]/15 px-2.5 py-1 rounded-full text-[10px] text-[#E76F51] font-semibold">
-                          <Star className="w-3 h-3 fill-[#E76F51]" /> {room.rating} · {room.reviews} reviews
-                        </span>
-                      </div>
-
-                      {/* Bed Selector for Dorms */}
+                      {/* Bed selector for Dorms */}
                       {room.kind === "DORM" && (
                         <div>
                           <p className="text-[10px] uppercase tracking-wider text-[#1C2D37]/40 font-bold mb-2">Select Beds</p>
@@ -268,14 +248,13 @@ export default function ExploreRooms() {
                                   onClick={() => toggleBed(room.roomId, bed.bedId)}
                                   className={`py-2 px-3 rounded-xl text-[10px] font-semibold border transition-all ${
                                     !bed.available
-                                      ? "bg-[#1C2D37]/5 text-[#1C2D37]/20 border-transparent cursor-not-allowed line-through"
+                                      ? "bg-[#1C2D37]/5 text-[#1C2D37]/20 cursor-not-allowed line-through"
                                       : selected
-                                      ? "bg-[#2A9D8F] text-white border-transparent"
-                                      : "bg-white text-[#1C2D37]/70 border-[#1C2D37]/10 hover:border-[#2A9D8F]/40"
+                                      ? "bg-[#2A9D8F] text-white"
+                                      : "bg-white text-[#1C2D37]"
                                   }`}
                                 >
                                   {bed.bedCode}
-                                  {!bed.available && " (taken)"}
                                 </button>
                               );
                             })}
@@ -290,7 +269,7 @@ export default function ExploreRooms() {
                           className={`w-full py-2.5 rounded-xl text-xs font-semibold border transition-all mt-2 ${
                             (selectedBeds[room.roomId] ?? []).includes(room.beds[0].bedId)
                               ? "bg-[#2A9D8F] text-white border-transparent"
-                              : "bg-white text-[#1C2D37]/70 border-[#1C2D37]/10 hover:border-[#2A9D8F]/40"
+                              : "bg-white text-[#1C2D37]/70 border-[#1C2D37]/10"
                           }`}
                         >
                           {(selectedBeds[room.roomId] ?? []).includes(room.beds[0].bedId)
@@ -304,23 +283,25 @@ export default function ExploreRooms() {
               ))}
             </div>
 
-            {/* ── STICKY BOOKING SUMMARY BAR ── */}
+            {/* Sticky summary bar with precise breakdown */}
             {totalBeds > 0 && (
               <div className="fixed bottom-0 left-0 right-0 bg-[#1C2D37] border-t border-white/5 px-6 py-4 flex items-center justify-between z-50 shadow-2xl">
                 <div className="text-white">
                   <div className="text-sm font-semibold">
                     {totalBeds} bed{totalBeds > 1 ? "s" : ""} selected · {nights} night{nights !== 1 ? "s" : ""}
                   </div>
-                  <div className="text-white/50 text-xs mt-0.5">Taxes & fees will be calculated at checkout</div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    Subtotal: ₹{breakdown.subtotal.toLocaleString()} + GST (12%): ₹{breakdown.tax.toLocaleString()}
+                  </div>
                 </div>
                 <div className="flex items-center gap-6">
                   <div className="text-right">
-                    <div className="text-2xl font-bold text-white">₹{totalAmount.toLocaleString()}</div>
-                    <div className="text-white/40 text-[10px]">Total (estimated)</div>
+                    <div className="text-2xl font-bold text-white">₹{breakdown.grandTotal.toLocaleString()}</div>
+                    <div className="text-white/40 text-[10px]">Grand Total</div>
                   </div>
                   <button
-                    onClick={() => router.push("/bookings/new")}
-                    className="bg-[#E76F51] hover:bg-[#d85c3e] text-white px-6 py-3 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-[#E76F51]/20"
+                    onClick={() => router.push("/bookings")}
+                    className="bg-[#E76F51] hover:bg-[#d85c3e] text-white px-6 py-3 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all shadow-lg"
                   >
                     Confirm & Book <ArrowRight className="w-4 h-4" />
                   </button>

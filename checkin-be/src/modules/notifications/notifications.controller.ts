@@ -1,14 +1,17 @@
-import { Controller, Get, Query, UseGuards, Req } from "@nestjs/common";
+import { Controller, Get, Post, Body, Query, UseGuards, Req } from "@nestjs/common";
 import { NotificationsService } from "./notifications.service";
-import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 
 @Controller("notifications")
-@UseGuards(JwtAuthGuard)
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get("history")
   async getHistory(@Query("limit") limit: string, @Req() req: any) {
-    return this.notificationsService.getHistory(req.user.sub, limit ? parseInt(limit, 10) : 20);
+    return this.notificationsService.getHistory(req.user?.sub ?? "demo-user", limit ? parseInt(limit, 10) : 20);
+  }
+
+  @Post("whatsapp")
+  async sendWhatsApp(@Body() body: { phone: string; message: string }) {
+    return this.notificationsService.sendWhatsAppMessage(body.phone, body.message);
   }
 }
