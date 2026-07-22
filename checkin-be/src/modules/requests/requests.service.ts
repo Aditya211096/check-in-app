@@ -1,189 +1,165 @@
 import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
-import { PrismaService } from "../../prisma.service";
-import { RequestState } from "@prisma/client";
+import { Subject } from "rxjs";
+
+export interface Task {
+  id: string;
+  tenantId: string;
+  propertyId: string;
+  bookingId: string;
+  type: "REQUEST" | "COMPLAINT";
+  category: string;
+  priority: string;
+  severity: string;
+  state: "NEW" | "ACKNOWLEDGED" | "ASSIGNED" | "IN_PROGRESS" | "RESOLVED" | "AUTO_ESCALATED";
+  etaMinutes?: number;
+  assignedToId?: string;
+  createdAt: Date;
+  ackAt?: Date;
+  assignedAt?: Date;
+  resolvedAt?: Date;
+  notes?: string;
+}
 
 @Injectable()
 export class RequestsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private tasks: Task[] = [];
+  public readonly sse$ = new Subject<{ type: string; data: any }>();
 
-  // ── GUEST: Create a Service Request or Complaint ─────────────────────────────
+  constructor() {
+    // Seed initial mock tasks for development & testing SLA colors
+    this.tasks = [
+      {
+        id: "task-1",
+        tenantId: "8586816812", // Owner/Manager default tenant ID
+        propertyId: "prop-1",
+        bookingId: "bk-001",
+        type: "REQUEST",
+        category: "Plumbing",
+        priority: "HIGH",
+        severity: "NORMAL",
+        state: "NEW",
+        createdAt: new Date(Date.now() - 12 * 60 * 1000), // older than 10 mins (triggers saffron flashing)
+      },
+      {
+        id: "task-2",
+        tenantId: "8586816812",
+        propertyId: "prop-1",
+        bookingId: "bk-001",
+        type: "COMPLAINT",
+        category: "Air Conditioning",
+        priority: "NORMAL",
+        severity: "HIGH",
+        state: "NEW",
+        createdAt: new Date(Date.now() - 4 * 60 * 1000), // warning state (gold color)
+      },
+      {
+        id: "task-3",
+        tenantId: "8586816812",
+        propertyId: "prop-1",
+        bookingId: "bk-001",
+        type: "REQUEST",
+        category: "Housekeeping",
+        priority: "LOW",
+        severity: "NORMAL",
+        state: "RESOLVED",
+        createdAt: new Date(Date.now() - 30 * 60 * 1000),
+        resolvedAt: new Date(Date.now() - 10 * 60 * 1000),
+      }
+    ];
+
+    // Periodically run auto-escalation check (simulating cron daemon)
+    setInterval(() => {
+      this.escalateBreachedRequests();
+    }, 30000);
+  }
+
   async create(
     tenantId: string,
     bookingId: string,
     data: {
+      propertyId?: string;
       type: "REQUEST" | "COMPLAINT";
       category: string;
       priority?: string;
       severity?: string;
-      description?: string;
     }
   ) {
-    // Verify booking belongs to this tenant
-    const booking = await this.prisma.booking.findFirst({
-      where: { id: bookingId, tenantId },
-    });
-    if (!booking) throw new NotFoundException("Booking not found.");
+    const task: Task = {
+      id: `task-${Date.now()}`,
+      tenantId,
+      propertyId: data.propertyId || "prop-1",
+      bookingId,
+      type: data.type,
+      category: data.category,
+      priority: data.priority || "NORMAL",
+      severity: data.severity || "NORMAL",
+      state: "NEW",
+      createdAt: new Date(),
+    };
 
-    if (data.type === "COMPLAINT") {
-      return this.prisma.complaint.create({
-        data: {
-          tenantId,
-          bookingId,
-          category: data.category,
-          severity: data.severity ?? "NORMAL",
-          state: RequestState.NEW,
-        },
-      });
-    }
-
-    return this.prisma.request.create({
-      data: {
-        tenantId,
-        bookingId,
-        category: data.category,
-        priority: data.priority ?? "NORMAL",
-        state: RequestState.NEW,
-      },
-    });
+    this.tasks.push(task);
+    this.emitSse("TASK_CREATED", task);
+    return task;
   }
 
-  // ── MANAGER: Get all pending requests/complaints for a property ──────────────
-  async listForProperty(tenantId: string, propertyId: string, type: "REQUEST" | "COMPLAINT" = "REQUEST") {
-    if (type === "COMPLAINT") {
-      return this.prisma.complaint.findMany({
-        where: { tenantId, booking: { propertyId } },
-        include: { booking: { select: { id: true, profile: { select: { fullName: true } } } } },
-        orderBy: { createdAt: "desc" },
-      });
-    }
-    return this.prisma.request.findMany({
-      where: { tenantId, booking: { propertyId } },
-      include: {
-        booking: { select: { id: true, profile: { select: { fullName: true } } } },
-        events: { orderBy: { createdAt: "desc" }, take: 1 },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+  async listForProperty(tenantId: string, propertyId: string) {
+    return this.tasks.filter(t => t.propertyId === propertyId);
   }
 
-  // ── MANAGER: Acknowledge a request ───────────────────────────────────────────
   async acknowledge(requestId: string, tenantId: string, actorId: string) {
-    const req = await this.prisma.request.findUnique({ where: { id: requestId } });
-    if (!req) throw new NotFoundException("Request not found.");
-    if (req.tenantId !== tenantId) throw new BadRequestException("Access denied.");
-    if (req.state !== RequestState.NEW) throw new BadRequestException("Only NEW requests can be acknowledged.");
+    const task = this.tasks.find(t => t.id === requestId);
+    if (!task) throw new NotFoundException("Task not found.");
+    if (task.state !== "NEW") throw new BadRequestException("Only NEW tasks can be acknowledged.");
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.request.update({
-        where: { id: requestId },
-        data: { state: RequestState.ACKNOWLEDGED, ackAt: new Date() },
-      }),
-      this.prisma.serviceEvent.create({
-        data: {
-          tenantId,
-          requestId,
-          actorId,
-          fromState: "NEW",
-          toState: "ACKNOWLEDGED",
-        },
-      }),
-    ]);
-    return updated;
+    task.state = "ACKNOWLEDGED";
+    task.ackAt = new Date();
+    this.emitSse("TASK_UPDATED", task);
+    return task;
   }
 
-  // ── MANAGER: Assign request to a staff member ─────────────────────────────────
   async assign(requestId: string, tenantId: string, staffId: string, etaMinutes: number, actorId: string) {
-    const req = await this.prisma.request.findUnique({ where: { id: requestId } });
-    if (!req) throw new NotFoundException("Request not found.");
-    if (req.tenantId !== tenantId) throw new BadRequestException("Access denied.");
+    const task = this.tasks.find(t => t.id === requestId);
+    if (!task) throw new NotFoundException("Task not found.");
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.request.update({
-        where: { id: requestId },
-        data: {
-          state: RequestState.ASSIGNED,
-          assignedToId: staffId,
-          assignedAt: new Date(),
-          etaMinutes,
-        },
-      }),
-      this.prisma.serviceEvent.create({
-        data: {
-          tenantId,
-          requestId,
-          actorId,
-          fromState: req.state,
-          toState: "ASSIGNED",
-          note: `Assigned to staff ${staffId} · ETA ${etaMinutes} min`,
-        },
-      }),
-    ]);
-    return updated;
+    task.state = "ASSIGNED";
+    task.assignedToId = staffId;
+    task.assignedAt = new Date();
+    task.etaMinutes = etaMinutes;
+    this.emitSse("TASK_UPDATED", task);
+    return task;
   }
 
-  // ── STAFF: Mark as In Progress / Resolved ────────────────────────────────────
-  async updateState(
-    requestId: string,
-    tenantId: string,
-    newState: RequestState,
-    actorId: string,
-    note?: string,
-    photoUri?: string
-  ) {
-    const req = await this.prisma.request.findUnique({ where: { id: requestId } });
-    if (!req) throw new NotFoundException("Request not found.");
-    if (req.tenantId !== tenantId) throw new BadRequestException("Access denied.");
+  async updateState(requestId: string, tenantId: string, newState: any, actorId: string, note?: string) {
+    const task = this.tasks.find(t => t.id === requestId);
+    if (!task) throw new NotFoundException("Task not found.");
 
-    const updates: any = { state: newState };
-    if (newState === RequestState.RESOLVED) updates.resolvedAt = new Date();
-
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.request.update({ where: { id: requestId }, data: updates }),
-      this.prisma.serviceEvent.create({
-        data: {
-          tenantId,
-          requestId,
-          actorId,
-          fromState: req.state,
-          toState: newState,
-          note,
-          photoUri,
-        },
-      }),
-    ]);
-    return updated;
+    task.state = newState;
+    if (newState === "RESOLVED") {
+      task.resolvedAt = new Date();
+    }
+    if (note) {
+      task.notes = note;
+    }
+    this.emitSse("TASK_UPDATED", task);
+    return task;
   }
 
-  // ── SLA: Auto-escalate requests older than 10 minutes with no ack ─────────────
-  async escalateBreachedRequests(tenantId: string) {
+  async escalateBreachedRequests() {
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-    const breached = await this.prisma.request.findMany({
-      where: {
-        tenantId,
-        state: RequestState.NEW,
-        createdAt: { lte: tenMinutesAgo },
-      },
+    let escalatedCount = 0;
+
+    this.tasks.forEach(task => {
+      if (task.state === "NEW" && task.createdAt <= tenMinutesAgo) {
+        task.state = "AUTO_ESCALATED";
+        escalatedCount++;
+        this.emitSse("TASK_UPDATED", task);
+      }
     });
 
-    if (breached.length === 0) return { escalated: 0 };
+    return { escalated: escalatedCount };
+  }
 
-    await this.prisma.request.updateMany({
-      where: { id: { in: breached.map((r) => r.id) } },
-      data: { state: RequestState.AUTO_ESCALATED },
-    });
-
-    // Log escalation events
-    await this.prisma.serviceEvent.createMany({
-      data: breached.map((r) => ({
-        tenantId,
-        requestId: r.id,
-        actorId: "SYSTEM_SLA_DAEMON",
-        fromState: "NEW",
-        toState: "AUTO_ESCALATED",
-        note: "SLA breach: no acknowledgment within 10 minutes",
-      })),
-    });
-
-    return { escalated: breached.length };
+  private emitSse(type: string, data: any) {
+    this.sse$.next({ type, data });
   }
 }

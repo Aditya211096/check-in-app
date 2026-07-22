@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Req, UseInterceptors, UploadedFile, Res } from "@nestjs/common";
+import { Controller, Get, Post, Body, Param, UseGuards, Req, UseInterceptors, UploadedFile, Res, Query } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { IdsKycService } from "./ids-kyc.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
@@ -25,15 +25,36 @@ export class IdsKycController {
     return this.kycService.getKycStatus(req.user.sub);
   }
 
-  // Developer mode local file upload endpoint
+  // ================= DIGILOCKER ENDPOINTS =================
+
+  @Post("digilocker/verify-linking")
+  @UseGuards(JwtAuthGuard)
+  async verifyLinking(@Body() body: { identifier: string }) {
+    return this.kycService.checkAccountLinking(body.identifier);
+  }
+
+  @Post("digilocker/session")
+  @UseGuards(JwtAuthGuard)
+  async initSession(@Body() body: { bookingId: string; callbackUrl: string }) {
+    const consentUrl = await this.kycService.buildConsentSession(body.bookingId, body.callbackUrl);
+    return { consentUrl };
+  }
+
+  @Get("digilocker/documents/:bookingId")
+  @UseGuards(JwtAuthGuard)
+  async fetchDocuments(@Param("bookingId") bookingId: string) {
+    return this.kycService.fetchConsentDocuments(bookingId);
+  }
+
+  // ================= LOCAL FALLBACK =================
+
   @Post("local-upload-fallback")
   @UseInterceptors(FileInterceptor("file"))
   async uploadLocalFallback(@UploadedFile() file: any, @Body() body: { filename?: string }) {
-    const filename = body.filename || file.originalname || "upload.jpg";
+    const filename = body.filename || file?.originalname || "upload.jpg";
     return this.kycService.saveLocalFile(filename, file.buffer);
   }
 
-  // Serve local files for preview in dev mode
   @Get("view-local/:filename")
   async viewLocalFile(@Param("filename") filename: string, @Res() res: any) {
     const filePath = this.kycService.getLocalFilePath(filename);

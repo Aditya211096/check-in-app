@@ -1,5 +1,4 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from "@nestjs/common";
-import { Role } from "@prisma/client";
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -13,8 +12,8 @@ export class TenantGuard implements CanActivate {
 
     let tenantId = user.tenantId;
 
-    // Super Admin can override the active tenant context using a header
-    if (user.role === Role.SUPER_ADMIN) {
+    // Super Admin can override active tenant context via header
+    if (user.role === "SUPER_ADMIN" || user.isSuperAdmin) {
       const headerTenantId = request.headers["x-tenant-id"];
       if (headerTenantId) {
         tenantId = headerTenantId;
@@ -22,11 +21,10 @@ export class TenantGuard implements CanActivate {
     }
 
     // Tenant-scoped users must have a valid tenant ID
-    if (user.role !== Role.SUPER_ADMIN && user.role !== Role.CUSTOMER && !tenantId) {
+    if (user.role !== "SUPER_ADMIN" && !user.isSuperAdmin && user.role !== "CUSTOMER" && !tenantId) {
       throw new ForbiddenException("A valid tenant context is required for this action.");
     }
 
-    // Attach tenantId to request object for use in transaction context
     request.tenantId = tenantId;
     return true;
   }

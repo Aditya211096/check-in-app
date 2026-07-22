@@ -1,5 +1,5 @@
-// v1.1 — production build with updated WhatsApp API token
-import { Controller, Get, Module } from "@nestjs/common";
+import { Controller, Get, Module, NestModule, MiddlewareConsumer, RequestMethod } from "@nestjs/common";
+import { ClsModule } from "nestjs-cls";
 import { PrismaModule } from "./prisma.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { TenantsModule } from "./modules/tenants/tenants.module";
@@ -12,6 +12,8 @@ import { CheckInModule } from "./modules/checkin/checkin.module";
 import { RequestsModule } from "./modules/requests/requests.module";
 import { FeedbackModule } from "./modules/feedback/feedback.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { SuperAdminModule } from "./modules/super-admin/super-admin.module";
+import { TenantContextMiddleware } from "./middleware/tenant-context.middleware";
 
 @Controller()
 class HealthController {
@@ -20,6 +22,10 @@ class HealthController {
 
 @Module({
   imports: [
+    ClsModule.forRoot({
+      global: true,
+      middleware: { mount: false }, // Mounted manually below via TenantContextMiddleware
+    }),
     PrismaModule,
     AuthModule,
     TenantsModule,
@@ -32,17 +38,21 @@ class HealthController {
     RequestsModule,
     FeedbackModule,
     NotificationsModule,
+    SuperAdminModule,
   ],
   controllers: [HealthController],
 })
-export class AppModule {}
-
-
-
-
-
-
-// TODO: import feature modules under src/modules/* per BRD milestones.
-// Order: auth → tenants → properties → rooms → beds → customer-profile → ids-kyc →
-//        bookings → checkin → checkout → requests → complaints → notifications →
-//        feedback → billing → audit.
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(TenantContextMiddleware)
+      .exclude(
+        { path: 'healthz', method: RequestMethod.GET },
+        { path: 'auth/verify', method: RequestMethod.POST },
+        { path: 'internal/tenants/provision', method: RequestMethod.POST },
+        { path: 'notifications/whatsapp/webhook', method: RequestMethod.ALL },
+        { path: 'requests/sse', method: RequestMethod.GET }
+      )
+      .forRoutes('*');
+  }
+}

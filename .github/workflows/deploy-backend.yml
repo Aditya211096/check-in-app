@@ -1,4 +1,5 @@
-name: Backend CI/CD Pipeline (GCP Cloud Run)
+# .github/workflows/deploy-backend.yml
+name: Deploy Traces Backend API to GCP Cloud Run
 
 on:
   push:
@@ -10,66 +11,78 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_ID: traces-checkin-app
-  SERVICE_NAME: checkin-backend
+  PROJECT_ID: traces-production-39211
   REGION: us-central1
-  REGISTRY: us-central1-docker.pkg.dev
-  REPO: cloud-run-source-deploy
+  ARTIFACT_REPOSITORY: traces-containers
+  SERVICE_NAME: traces-backend-api
+  WIF_PROVIDER: projects/1234567890/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+  WIF_SERVICE_ACCOUNT: github-deployer@traces-production-39211.iam.gserviceaccount.com
 
 jobs:
-  deploy:
-    name: Build & Deploy Backend to Cloud Run
+  deployment-pipeline:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      # Authenticate securely with GCP using OIDC Workload Identity Federation
+      - name: Authenticate with GCP via Workload Identity
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          token_format: access_token
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
         with:
-          project_id: ${{ env.PROJECT_ID }}
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'checkin-be/package-lock.json'
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
-
-      - name: Build Docker Image
+      # Run database updates via the direct port before building the container
+      - name: Run Database Schema Migrations
         run: |
+          cd checkin-be
+          npm ci
+          npx prisma generate
+          npx prisma migrate deploy
+        env:
+          DIRECT_URL: ${{ secrets.PROD_DATABASE_DIRECT_URL }}
+
+      # Authenticate Docker client against GCP Artifact Registry
+      - name: Configure GCP Registry Authentication
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      # Build, tag, and publish the container image to GCP Artifact Registry
+      - name: Compile and Push Container Image
+        run: |
+          cd checkin-be
+          IMAGE_TAG=${{ github.sha }}
+          IMAGE_URI=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ env.SERVICE_NAME }}:${IMAGE_TAG}
+          
           docker build \
-            -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
-            -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE_NAME }}:latest \
-            ./checkin-be
+            --build-arg DIRECT_URL="postgresql://placeholder_user:placeholder_password@localhost:5432/placeholder_db" \
+            -t $IMAGE_URI .
+          docker push $IMAGE_URI
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-      - name: Push Docker Image
-        run: |
-          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
-          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE_NAME }}:latest
-
-      - name: Deploy to Cloud Run
-        run: |
-          DB_URL="${{ secrets.DATABASE_URL }}"
-          if [ -z "$DB_URL" ]; then
-            DB_URL="postgresql://postgres:postgres@127.0.0.1:5432/traces_checkin"
-          fi
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
-            --platform managed \
-            --region ${{ env.REGION }} \
-            --allow-unauthenticated \
-            --port 8080 \
-            --timeout 300 \
-            --memory 512Mi \
-            --cpu 1 \
-            --set-env-vars="DATABASE_URL=${DB_URL},WHATSAPP_API_TOKEN=${{ secrets.WHATSAPP_API_TOKEN }},WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }},WHATSAPP_BUSINESS_ACCOUNT_ID=${{ secrets.WHATSAPP_BUSINESS_ACCOUNT_ID }},NODE_ENV=production,ALLOWED_ORIGINS=https://aditya211096.github.io" \
-            --quiet
-
-      - name: Show Service URL
-        run: |
-          gcloud run services describe ${{ env.SERVICE_NAME }} \
-            --region ${{ env.REGION }} \
-            --format='value(status.url)'
+      # Deploy the verified image to Google Cloud Run
+      - name: Deploy to GCP Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE_URI }}
+          flags: '--port=8080 --allow-unauthenticated --max-instances=10 --min-instances=1'
+          env_vars: |
+            NODE_ENV=production
+            DATABASE_URL=${{ secrets.PROD_DATABASE_POOLED_URL }}
+            DIRECT_URL=${{ secrets.PROD_DATABASE_DIRECT_URL }}
+            JWT_SECRET=${{ secrets.PROD_JWT_SECRET }}
+            ALLOWED_ORIGINS=https://aditya211096.github.io

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Req } from "@nestjs/common";
+import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Req, BadRequestException } from "@nestjs/common";
 import { BookingsService } from "./bookings.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { BookingStatus } from "@prisma/client";
@@ -13,10 +13,13 @@ export class BookingsController {
   @Get("availability")
   async checkAvailability(
     @Query("propertyId") propertyId: string,
-    @Query("checkIn") checkIn: string,
-    @Query("checkOut") checkOut: string
+    @Query("checkInAt") checkInAt: string,
+    @Query("checkOutAt") checkOutAt: string
   ) {
-    return this.bookingsService.checkAvailability(propertyId, new Date(checkIn), new Date(checkOut));
+    if (!checkInAt || !checkOutAt) {
+      throw new BadRequestException("checkInAt and checkOutAt query parameters are required.");
+    }
+    return this.bookingsService.checkAvailability(propertyId, new Date(checkInAt), new Date(checkOutAt));
   }
 
   // ── CREATE BOOKING ────────────────────────────────────────────────────────
@@ -26,50 +29,32 @@ export class BookingsController {
     @Body()
     body: {
       propertyId: string;
-      checkIn: string;
-      checkOut: string;
-      bedIds: string[];
-      specialReqs?: Record<string, unknown>;
+      checkInAt: string;
+      checkOutAt: string;
+      roomId?: string;
     },
     @Req() req: any
   ) {
     const user = req.user;
-    // Resolve profileId from user
-    const profile = await this.bookingsService["prisma"].customerProfile.findUnique({
-      where: { userId: user.sub },
-    });
-    if (!profile) {
-      throw new Error("Please complete your guest profile before booking.");
-    }
-    return this.bookingsService.createBooking(user.tenantId ?? "global", profile.id, body);
+    const tenantId = user.tenantId || "global-tenant";
+    return this.bookingsService.createBooking(tenantId, user.sub, body);
   }
 
   // ── GUEST BOOKINGS ────────────────────────────────────────────────────────
 
   @Get("mine")
   async getMyBookings(@Req() req: any) {
-    const profile = await this.bookingsService["prisma"].customerProfile.findUnique({
-      where: { userId: req.user.sub },
-    });
-    if (!profile) return [];
-    return this.bookingsService.getBookingsForGuest(profile.id);
+    return this.bookingsService.getBookingsForGuest(req.user.sub);
   }
 
   @Get("mine/:id")
   async getMyBookingById(@Param("id") id: string, @Req() req: any) {
-    const profile = await this.bookingsService["prisma"].customerProfile.findUnique({
-      where: { userId: req.user.sub },
-    });
-    return this.bookingsService.getBookingById(id, profile?.id);
+    return this.bookingsService.getBookingById(id, req.user.sub);
   }
 
   @Delete("mine/:id/cancel")
   async cancelMyBooking(@Param("id") id: string, @Req() req: any) {
-    const profile = await this.bookingsService["prisma"].customerProfile.findUnique({
-      where: { userId: req.user.sub },
-    });
-    if (!profile) throw new Error("Profile not found.");
-    return this.bookingsService.cancelBooking(id, profile.id);
+    return this.bookingsService.cancelBooking(id, req.user.sub);
   }
 
   // ── MANAGER/PROPERTY BOOKINGS ─────────────────────────────────────────────
@@ -80,11 +65,13 @@ export class BookingsController {
     @Query("status") status: BookingStatus,
     @Req() req: any
   ) {
-    return this.bookingsService.getBookingsForProperty(req.user.tenantId, propertyId, status);
+    const tenantId = req.user.tenantId || "global-tenant";
+    return this.bookingsService.getBookingsForProperty(tenantId, propertyId, status);
   }
 
   @Post(":id/confirm")
   async confirmBooking(@Param("id") id: string, @Req() req: any) {
-    return this.bookingsService.confirmBooking(id, req.user.tenantId);
+    const tenantId = req.user.tenantId || "global-tenant";
+    return this.bookingsService.confirmBooking(id, tenantId);
   }
 }

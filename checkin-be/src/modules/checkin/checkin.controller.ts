@@ -12,21 +12,22 @@ export class CheckInController {
   async walkIn(
     @Body() body: {
       propertyId: string;
-      bedId: string;
+      roomId: string;
       fullName: string;
       phone: string;
       checkOut: string;
-      specialReqs?: Record<string, unknown>;
     },
     @Req() req: any
   ) {
-    return this.checkInService.walkInCheckIn(req.user.tenantId, body);
+    const tenantId = req.user.tenantId || "global-tenant";
+    return this.checkInService.walkInCheckIn(tenantId, body);
   }
 
   // Manager: confirm existing reservation → check-in
   @Post(":bookingId/confirm-checkin")
   async confirmCheckIn(@Param("bookingId") bookingId: string, @Req() req: any) {
-    return this.checkInService.checkInBooking(bookingId, req.user.tenantId);
+    const tenantId = req.user.tenantId || "global-tenant";
+    return this.checkInService.checkInBooking(bookingId, tenantId);
   }
 
   // Manager: check-out a booking
@@ -36,22 +37,13 @@ export class CheckInController {
     @Body() body: { notes?: string },
     @Req() req: any
   ) {
-    return this.checkInService.checkOutBooking(bookingId, req.user.tenantId, body.notes);
+    const tenantId = req.user.tenantId || "global-tenant";
+    return this.checkInService.checkOutBooking(bookingId, tenantId, body.notes);
   }
 
   // Guest: get digital pass for their booking
   @Get("pass/:bookingId")
   async getPass(@Param("bookingId") bookingId: string, @Req() req: any) {
-    const profile = await this.checkInService["prisma"].customerProfile.findUnique({
-      where: { userId: req.user.sub },
-    });
-    if (!profile) throw new Error("Profile not found.");
-    return this.checkInService.getDigitalPass(bookingId, profile.id);
-  }
-
-  // Housekeeping: mark a bed clean
-  @Post("bed/:bedId/clean")
-  async markClean(@Param("bedId") bedId: string, @Req() req: any) {
-    return this.checkInService.markBedClean(bedId, req.user.tenantId);
+    return this.checkInService.getDigitalPass(bookingId, req.user.sub);
   }
 }

@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "../../prisma.service";
-import { Role } from "@prisma/client";
+import { GlobalRole, TenantRole } from "@prisma/client";
 import * as admin from "firebase-admin";
 
 @Injectable()
@@ -44,7 +44,6 @@ export class AuthService {
   async verifyFirebaseToken(idToken: string): Promise<{ token: string; user: any }> {
     let phoneNumber: string;
 
-    // Developer mode fallback for test OTP tokens without requiring service credentials
     if (process.env.NODE_ENV === "development" && idToken.startsWith("mock-token-")) {
       phoneNumber = idToken.replace("mock-token-", "");
     } else {
@@ -54,41 +53,66 @@ export class AuthService {
         if (!decodedPhone) {
           throw new UnauthorizedException("Firebase token does not contain a phone number.");
         }
-        phoneNumber = decodedPhone;
+        phoneNumber = decodedPhone.replace("+", ""); // normalize phone number format without "+" symbol
       } catch (error) {
         console.error("Firebase ID Token verification failed:", error);
         throw new UnauthorizedException("Invalid or expired Firebase authentication token.");
       }
     }
 
+    // normalize phone number to standard 10 digit representation if needed
+    const cleanPhone = phoneNumber.replace(/\D/g, "").slice(-10);
+
     // Lookup or auto-onboard user in database
-    let user = await this.prisma.user.findUnique({
-      where: { phone: phoneNumber },
-      include: { tenant: true },
+    let user = await this.prisma.client.user.findUnique({
+      where: { phoneNumber: cleanPhone },
+      include: {
+        globalRoles: true,
+        tenantRoles: {
+          include: { tenant: true }
+        }
+      },
     });
 
     if (!user) {
-      // Auto-onboard as CUSTOMER role by default
-      user = await this.prisma.user.create({
+      // Auto-onboard as a generic user
+      user = await this.prisma.client.user.create({
         data: {
-          phone: phoneNumber,
-          role: Role.CUSTOMER,
+          phoneNumber: cleanPhone,
           fullName: "New Guest",
         },
-        include: { tenant: true },
+        include: {
+          globalRoles: true,
+          tenantRoles: {
+            include: { tenant: true }
+          }
+        },
       });
     }
 
-    if (user.disabled) {
-      throw new UnauthorizedException("Your user account has been disabled.");
+    // Determine highest role
+    const isSuperAdmin = user.globalRoles.some((r: any) => r.role === GlobalRole.SUPER_ADMIN);
+    
+    let activeRole: string = "CUSTOMER";
+    let activeTenantId: string | null = null;
+    let activeTenantName: string | null = null;
+
+    if (isSuperAdmin) {
+      activeRole = "SUPER_ADMIN";
+    } else if (user.tenantRoles.length > 0) {
+      const firstRole = user.tenantRoles[0];
+      activeRole = firstRole.role;
+      activeTenantId = firstRole.tenantId;
+      activeTenantName = firstRole.tenant.name;
     }
 
-    // Sign custom session JWT
+    // Sign session JWT
     const payload = {
       sub: user.id,
-      phone: user.phone,
-      role: user.role,
-      tenantId: user.tenantId,
+      phone: user.phoneNumber,
+      role: activeRole,
+      tenantId: activeTenantId,
+      isSuperAdmin,
     };
 
     const token = this.jwtService.sign(payload);
@@ -97,11 +121,11 @@ export class AuthService {
       token,
       user: {
         id: user.id,
-        phone: user.phone,
-        role: user.role,
+        phone: user.phoneNumber,
+        role: activeRole,
         fullName: user.fullName,
-        tenantId: user.tenantId,
-        tenantName: user.tenant?.name || null,
+        tenantId: activeTenantId,
+        tenantName: activeTenantName,
       },
     };
   }

@@ -10,18 +10,16 @@ export class FeedbackController {
   @Post(":bookingId")
   async submit(
     @Param("bookingId") bookingId: string,
-    @Body() body: { rating: number; comment?: string; anonymousShare?: boolean },
+    @Body() body: { rating: number; comment?: string },
     @Req() req: any
   ) {
-    const profile = await this.feedbackService["prisma"].customerProfile.findUnique({
-      where: { userId: req.user.sub },
-    });
-    if (!profile) throw new Error("Profile not found.");
-    return this.feedbackService.submitFeedback(req.user.tenantId ?? "", bookingId, profile.id, body);
+    const tenantId = req.user.tenantId || "global-tenant";
+    return this.feedbackService.submitFeedback(tenantId, bookingId, req.user.sub, body);
   }
 
   @Get("property/:propertyId")
   async getPropertyFeedback(@Param("propertyId") propertyId: string, @Req() req: any) {
-    return this.feedbackService.getPropertyFeedback(req.user.tenantId, propertyId);
+    const tenantId = req.user.tenantId || "global-tenant";
+    return this.feedbackService.getPropertyFeedback(tenantId, propertyId);
   }
 }

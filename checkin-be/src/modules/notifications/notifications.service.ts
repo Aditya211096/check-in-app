@@ -1,5 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, HttpException, HttpStatus } from "@nestjs/common";
 import { PrismaService } from "../../prisma.service";
+import axios from "axios";
 
 interface NotificationPayload {
   title: string;
@@ -10,6 +11,9 @@ interface NotificationPayload {
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
+  private readonly apiUrl = 'https://graph.facebook.com/v20.0';
+  private readonly token = process.env.WHATSAPP_API_TOKEN;
+  private readonly phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -22,127 +26,92 @@ export class NotificationsService {
 
   /**
    * Send WhatsApp OTP via Meta Business Cloud API.
-   * Tries: (1) authentication template → (2) plain text → (3) demo fallback
+   * Tries template sending, fallback to plain text, then demo mode.
    */
   async sendWhatsAppMessage(
     recipientPhone: string,
     _messageText?: string,
   ): Promise<{ success: boolean; data?: any; error?: string; otp?: string }> {
-    const token = process.env.WHATSAPP_API_TOKEN;
-    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const templateName = process.env.WHATSAPP_OTP_TEMPLATE_NAME || "otp_verification";
     const cleanPhone = recipientPhone.replace(/[^0-9]/g, "");
     const otp = this.generateOtp();
 
-    if (!token || !phoneId) {
-      this.logger.warn(`WhatsApp credentials missing — demo mode active for ${cleanPhone}.`);
+    if (!this.token || !this.phoneId) {
+      this.logger.warn(`Meta API parameters are missing. Running in demo mode for ${cleanPhone}.`);
       return { success: true, data: { mode: "demo_fallback" }, otp: "123456" };
     }
 
-    const url = `https://graph.facebook.com/v20.0/${phoneId}/messages`;
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    };
+    const templateName = process.env.WHATSAPP_OTP_TEMPLATE_NAME || "otp_verification";
 
-    // Attempt 1: Authentication template (required for business-initiated OTPs)
     try {
-      this.logger.log(`[WHATSAPP TEMPLATE → ${cleanPhone}] Sending OTP via template "${templateName}"...`);
-      const templateRes = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to: cleanPhone,
-          type: "template",
-          template: {
-            name: templateName,
-            language: { code: "en" },
-            components: [
-              {
-                type: "body",
-                parameters: [{ type: "text", text: otp }],
-              },
-              {
-                type: "button",
-                sub_type: "url",
-                index: "0",
-                parameters: [{ type: "text", text: otp }],
-              },
-            ],
-          },
-        }),
-      });
-      const templateData: any = await templateRes.json();
-
-      if (templateRes.ok) {
-        this.logger.log(`[WHATSAPP SUCCESS → ${cleanPhone}] Template OTP sent. MsgID: ${templateData?.messages?.[0]?.id}`);
-        return { success: true, data: templateData, otp };
-      }
-
-      // If template has no button component, retry without button
-      if (templateData?.error?.code === 132000 || templateData?.error?.message?.includes("button")) {
-        const retryRes = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to: cleanPhone,
-            type: "template",
-            template: {
-              name: templateName,
-              language: { code: "en" },
-              components: [
-                {
-                  type: "body",
-                  parameters: [{ type: "text", text: otp }],
-                },
-              ],
+      const payload = {
+        messaging_product: "whatsapp",
+        to: cleanPhone,
+        type: "template",
+        template: {
+          name: templateName,
+          language: { code: "en_US" },
+          components: [
+            {
+              type: "body",
+              parameters: [{ type: "text", text: otp }]
             },
-          }),
-        });
-        const retryData: any = await retryRes.json();
-        if (retryRes.ok) {
-          this.logger.log(`[WHATSAPP SUCCESS → ${cleanPhone}] Template OTP (no-button) sent.`);
-          return { success: true, data: retryData, otp };
+            {
+              type: "button",
+              sub_type: "url",
+              index: "0",
+              parameters: [{ type: "text", text: otp }]
+            }
+          ]
         }
-        this.logger.warn(`[WHATSAPP TEMPLATE FAIL] ${JSON.stringify(retryData?.error)}`);
-      } else {
-        this.logger.warn(`[WHATSAPP TEMPLATE FAIL] ${JSON.stringify(templateData?.error)}`);
-      }
-    } catch (err: any) {
-      this.logger.error(`WhatsApp template exception: ${err?.message}`);
-    }
+      };
 
-    // Attempt 2: Plain text (works only inside 24-hour customer-initiated window)
-    try {
-      this.logger.log(`[WHATSAPP TEXT → ${cleanPhone}] Retrying as plain text message...`);
-      const textRes = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
+      const response = await axios.post(
+        `${this.apiUrl}/${this.phoneId}/messages`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const success = response.status === 200 || response.status === 201;
+      this.logger.log(`[WHATSAPP SUCCESS → ${cleanPhone}] Template OTP sent.`);
+      return { success, data: response.data, otp };
+    } catch (error: any) {
+      this.logger.warn("Meta template API delivery failed, retrying plain text...", error.response?.data || error.message);
+      
+      // Fallback: Try sending plain text message
+      try {
+        const textPayload = {
           messaging_product: "whatsapp",
           recipient_type: "individual",
           to: cleanPhone,
           type: "text",
-          text: { body: `Your Traces check-in OTP is: *${otp}*. Valid for 10 minutes. Do not share this code.` },
-        }),
-      });
-      const textData: any = await textRes.json();
-      if (textRes.ok) {
+          text: { body: `Your Traces check-in OTP is: ${otp}. Valid for 10 minutes.` }
+        };
+
+        const response = await axios.post(
+          `${this.apiUrl}/${this.phoneId}/messages`,
+          textPayload,
+          {
+            headers: {
+              Authorization: `Bearer ${this.token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
         this.logger.log(`[WHATSAPP SUCCESS → ${cleanPhone}] Plain text OTP sent.`);
-        return { success: true, data: textData, otp };
+        return { success: true, data: response.data, otp };
+      } catch (err: any) {
+        this.logger.error("Meta WhatsApp fallback API delivery failed", err.response?.data || err.message);
+        return {
+          success: true,
+          otp: "123456",
+          error: "Meta WhatsApp API returned error, demo mode active.",
+        };
       }
-      this.logger.warn(`[WHATSAPP TEXT FAIL] ${JSON.stringify(textData?.error)}`);
-      return {
-        success: true,
-        data: textData,
-        otp: "123456",
-        error: textData?.error?.message ?? "WhatsApp delivery failed — demo OTP active.",
-      };
-    } catch (err: any) {
-      this.logger.error(`WhatsApp text exception: ${err?.message}`);
-      return { success: true, error: err?.message, otp: "123456" };
     }
   }
 
@@ -152,26 +121,32 @@ export class NotificationsService {
   async sendPush(userId: string, payload: NotificationPayload): Promise<void> {
     this.logger.log(`[FCM PUSH → ${userId}] ${payload.title}: ${payload.body}`);
 
-    await this.prisma.notification.create({
+    // Create log inside PlatformAuditLog since Notification table is removed
+    await this.prisma.client.platformAuditLog.create({
       data: {
         userId,
-        event: payload.title,
-        channel: "push",
-        payload: payload as any,
-        deliveredAt: new Date(),
+        action: "SEND_PUSH",
+        entityType: "User",
+        entityId: userId,
+        payload: {
+          title: payload.title,
+          body: payload.body,
+          channel: "push",
+        },
+        ipAddress: "127.0.0.1",
       },
     });
   }
 
   /**
-   * Send SMS notification via MSG91/Twilio.
+   * Send SMS notification.
    */
   async sendSms(phone: string, message: string): Promise<void> {
     this.logger.log(`[SMS → ${phone}] ${message}`);
   }
 
   /**
-   * Send email via SendGrid.
+   * Send email.
    */
   async sendEmail(to: string, subject: string, html: string): Promise<void> {
     this.logger.log(`[EMAIL → ${to}] Subject: ${subject}`);
@@ -227,8 +202,8 @@ export class NotificationsService {
    * Get notification history for a user
    */
   async getHistory(userId: string, limit = 20) {
-    return this.prisma.notification.findMany({
-      where: { userId },
+    return this.prisma.client.platformAuditLog.findMany({
+      where: { userId, action: "SEND_PUSH" },
       orderBy: { createdAt: "desc" },
       take: limit,
     });

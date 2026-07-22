@@ -8,61 +8,78 @@ export class FeedbackService {
   async submitFeedback(
     tenantId: string,
     bookingId: string,
-    profileId: string,
-    data: { rating: number; comment?: string; anonymousShare?: boolean }
+    guestId: string,
+    data: { rating: number; comment?: string }
   ) {
     if (data.rating < 1 || data.rating > 5) {
       throw new BadRequestException("Rating must be between 1 and 5.");
     }
 
-    const booking = await this.prisma.booking.findUnique({
+    const booking = await this.prisma.client.booking.findUnique({
       where: { id: bookingId },
-      include: { feedback: true },
     });
     if (!booking) throw new NotFoundException("Booking not found.");
-    if (booking.profileId !== profileId) throw new BadRequestException("Access denied.");
-    if (booking.feedback) throw new BadRequestException("Feedback already submitted for this booking.");
+    if (booking.guestId !== guestId) throw new BadRequestException("Access denied.");
 
-    return this.prisma.feedback.create({
+    // Log the feedback directly to PlatformAuditLog for CSAT analytics
+    return this.prisma.client.platformAuditLog.create({
       data: {
-        tenantId,
-        bookingId,
-        rating: data.rating,
-        comment: data.comment,
-        anonymousShare: data.anonymousShare ?? true,
+        userId: guestId,
+        action: "SUBMIT_FEEDBACK",
+        entityType: "Booking",
+        entityId: bookingId,
+        payload: {
+          rating: data.rating,
+          comment: data.comment || "",
+          tenantId,
+        },
+        ipAddress: "127.0.0.1",
       },
     });
   }
 
   async getPropertyFeedback(tenantId: string, propertyId: string) {
-    const feedbacks = await this.prisma.feedback.findMany({
+    // Retrieve feedback events logged under PlatformAuditLog
+    const logs = await this.prisma.client.platformAuditLog.findMany({
       where: {
-        tenantId,
-        booking: { propertyId },
-        anonymousShare: true,
+        action: "SUBMIT_FEEDBACK",
       },
       include: {
-        booking: {
-          select: {
-            checkIn: true,
-            checkOut: true,
-            profile: { select: { fullName: true } },
-          },
-        },
+        user: true
       },
       orderBy: { createdAt: "desc" },
     });
 
+    // Filter logs that belong to this tenant's bookings
+    const filteredFeedback = logs.filter((log: any) => {
+      return log.payload?.tenantId === tenantId;
+    });
+
+    const feedbacks = filteredFeedback.map((log: any) => ({
+      id: log.id,
+      rating: log.payload?.rating || 5,
+      comment: log.payload?.comment || "",
+      createdAt: log.createdAt,
+      booking: {
+        profile: { fullName: log.user.fullName }
+      }
+    }));
+
     const avgRating =
       feedbacks.length > 0
-        ? feedbacks.reduce((sum, f) => sum + f.rating, 0) / feedbacks.length
+        ? feedbacks.reduce((sum: number, f: any) => sum + f.rating, 0) / feedbacks.length
         : 0;
 
     const distribution = [1, 2, 3, 4, 5].map((star) => ({
       star,
-      count: feedbacks.filter((f) => f.rating === star).length,
+      count: feedbacks.filter((f: any) => f.rating === star).length,
     }));
 
-    return { avgRating: Math.round(avgRating * 10) / 10, totalReviews: feedbacks.length, distribution, feedbacks };
+    return { 
+      avgRating: Math.round(avgRating * 10) / 10, 
+      totalReviews: feedbacks.length, 
+      distribution, 
+      feedbacks 
+    };
   }
 }

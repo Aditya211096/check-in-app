@@ -1,20 +1,22 @@
-import { Injectable, BadRequestException, NotFoundException } from "@nestjs/common";
+import { Injectable, BadRequestException, NotFoundException, HttpException, HttpStatus } from "@nestjs/common";
 import { PrismaService } from "../../prisma.service";
 import { Storage } from "@google-cloud/storage";
-import { KycStatus } from "@prisma/client";
 import * as crypto from "crypto";
 import * as path from "path";
 import * as fs from "fs";
+import axios from "axios";
 
 @Injectable()
 export class IdsKycService {
   private storage: Storage | null = null;
   private bucketName: string;
+  private readonly baseUrl = 'https://sandbox.co.in';
+  private readonly apiKey = process.env.SANDBOX_API_KEY;
+  private readonly apiSecret = process.env.SANDBOX_API_SECRET;
 
   constructor(private readonly prisma: PrismaService) {
     this.bucketName = process.env.GCS_BUCKET || "ids-vault-dev";
     
-    // Check if service account credentials or environment credentials are set up
     try {
       const adminConfig = JSON.parse(process.env.FIREBASE_ADMIN_JSON || "{}");
       if (adminConfig.private_key || process.env.GOOGLE_APPLICATION_CREDENTIALS) {
@@ -28,12 +30,11 @@ export class IdsKycService {
   }
 
   /**
-   * Generate secure upload URL. Falls back to local endpoint in dev mode.
+   * Generate secure upload URL.
    */
   async getUploadUrl(userId: string, originalName: string, contentType: string) {
     const ext = path.extname(originalName) || ".jpg";
     const salt = crypto.randomBytes(8).toString("hex");
-    // Generate secure hash filename to mask user PII in GCS paths
     const hashedName = crypto.createHash("sha256").update(userId + salt + originalName).digest("hex") + ext;
 
     if (this.storage) {
@@ -41,7 +42,6 @@ export class IdsKycService {
         const bucket = this.storage.bucket(this.bucketName);
         const file = bucket.file(hashedName);
         
-        // 15-minute write-only signed URL
         const [uploadUrl] = await file.getSignedUrl({
           version: "v4",
           action: "write",
@@ -49,7 +49,6 @@ export class IdsKycService {
           contentType,
         });
 
-        // 5-minute read signed URL for backend/review access
         const [viewUrl] = await file.getSignedUrl({
           version: "v4",
           action: "read",
@@ -62,9 +61,9 @@ export class IdsKycService {
       }
     }
 
-    // Local development fallback
-    const uploadUrl = `http://localhost:5000/kyc/local-upload-fallback?filename=${hashedName}`;
-    const viewUrl = `http://localhost:5000/kyc/view-local/${hashedName}`;
+    const port = process.env.PORT || 8080;
+    const uploadUrl = `http://localhost:${port}/kyc/local-upload-fallback?filename=${hashedName}`;
+    const viewUrl = `http://localhost:${port}/kyc/view-local/${hashedName}`;
     return { uploadUrl, viewUrl, gcsObject: hashedName };
   }
 
@@ -72,51 +71,158 @@ export class IdsKycService {
    * Submit KYC document metadata and run OCR verification
    */
   async submitKyc(userId: string, docType: string, gcsObject: string, fileHash: string) {
-    // 1. Confirm customer profile exists
-    const profile = await this.prisma.customerProfile.findUnique({
-      where: { userId },
+    const user = await this.prisma.client.user.findUnique({
+      where: { id: userId },
     });
-    if (!profile) {
-      throw new BadRequestException("Customer profile must be created before uploading IDs.");
+    if (!user) {
+      throw new BadRequestException("User profile must be created before uploading IDs.");
     }
 
-    // 2. Mock Document AI parsing logic in dev or if credentials aren't loaded
     const ocrMetadata = {
-      extractedName: profile.fullName,
-      extractedDob: profile.dob || "1996-10-21",
+      extractedName: user.fullName,
+      extractedDob: "1996-10-21",
       extractedIdNumber: "XXXX-XXXX-3412",
       idVerified: true,
     };
 
-    // 3. Save KycDocument row
-    const kycDoc = await this.prisma.kycDocument.create({
+    // Log the KYC event to PlatformAuditLog since KycDocument table is removed
+    await this.prisma.client.platformAuditLog.create({
       data: {
-        profileId: profile.id,
-        docType,
-        gcsObject,
-        fileHash,
-        status: KycStatus.APPROVED, // Auto-approve in developer mock mode
-        meta: ocrMetadata,
+        userId,
+        action: "SUBMIT_KYC",
+        entityType: "User",
+        entityId: userId,
+        payload: {
+          docType,
+          gcsObject,
+          fileHash,
+          ocrMetadata,
+          status: "APPROVED",
+        },
+        ipAddress: "127.0.0.1",
       },
     });
 
-    return kycDoc;
+    return {
+      id: "kyc-mock-id",
+      userId,
+      docType,
+      status: "APPROVED",
+      meta: ocrMetadata,
+      createdAt: new Date(),
+    };
   }
 
   async getKycStatus(userId: string) {
-    const profile = await this.prisma.customerProfile.findUnique({
-      where: { userId },
-      include: { kycDocuments: true },
+    const logs = await this.prisma.client.platformAuditLog.findMany({
+      where: {
+        userId,
+        action: "SUBMIT_KYC",
+      },
+      orderBy: { createdAt: "desc" },
     });
-    if (!profile) {
-      return [];
-    }
-    return profile.kycDocuments;
+
+    return logs.map((log: any) => ({
+      id: log.id,
+      docType: log.payload?.docType,
+      status: log.payload?.status,
+      meta: log.payload?.ocrMetadata,
+      createdAt: log.createdAt,
+    }));
   }
 
-  /**
-   * Save local uploaded file in dev fallback
-   */
+  // ================= DIGILOCKER INTEGRATIONS (Section 5) =================
+
+  async checkAccountLinking(identifier: string): Promise<{ exists: boolean }> {
+    if (!this.apiKey || !this.apiSecret) {
+      console.warn("DigiLocker sandbox parameters missing.");
+      return { exists: false };
+    }
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/kyc/digilocker/verify-account`,
+        { identifier },
+        {
+          headers: {
+            'x-api-key': this.apiKey,
+            'x-api-secret': this.apiSecret,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      return { exists: response.data?.status === 'LINKED' };
+    } catch (error: any) {
+      console.error('DigiLocker eligibility check failed', error.response?.data || error.message);
+      return { exists: false };
+    }
+  }
+
+  async buildConsentSession(bookingId: string, callbackUrl: string): Promise<string> {
+    if (!this.apiKey || !this.apiSecret) {
+      // Return a simulated mock consent URL if keys are not loaded
+      return `https://sandbox.co.in/mock-digilocker-sdk?session_id=${bookingId}&callback_url=${encodeURIComponent(callbackUrl)}`;
+    }
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/kyc/digilocker/sdk`,
+        {
+          module: 'in.co.sandbox.kyc.digilocker',
+          session_id: bookingId,
+          callback_url: callbackUrl,
+          mode: 'dark',
+          seed: '#0D9488', // Custom Ganges Teal styling
+        },
+        {
+          headers: {
+            'x-api-key': this.apiKey,
+            'x-api-secret': this.apiSecret,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.data?.status === 'SUCCESS' && response.data?.url) {
+        return response.data.url;
+      }
+      throw new HttpException('Could not initiate user consent session.', HttpStatus.BAD_REQUEST);
+    } catch (error: any) {
+      console.error('DigiLocker consent session initiation failed', error.response?.data || error.message);
+      throw new HttpException('DigiLocker service is currently offline.', HttpStatus.SERVICE_UNAVAILABLE);
+    }
+  }
+
+  async fetchConsentDocuments(bookingId: string): Promise<any> {
+    if (!this.apiKey || !this.apiSecret) {
+      return {
+        status: "SUCCESS",
+        doc_type: "AADHAAR",
+        data: {
+          name: "Mock DigiLocker Guest",
+          dob: "1996-10-21",
+          gender: "M",
+          aadhaar_number: "XXXXXXXX9012",
+        }
+      };
+    }
+    try {
+      const response = await axios.get(
+        `${this.baseUrl}/kyc/digilocker/document?session_id=${bookingId}&doc_type=AADHAAR`,
+        {
+          headers: {
+            'x-api-key': this.apiKey,
+            'x-api-secret': this.apiSecret,
+          },
+        }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to retrieve verified DigiLocker data', error.response?.data || error.message);
+      throw new HttpException('Aadhaar record extraction failed.', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // ================= LOCAL FALLBACK =================
+
   async saveLocalFile(filename: string, fileBuffer: Buffer) {
     const uploadDir = path.join(process.cwd(), "uploads");
     if (!fs.existsSync(uploadDir)) {
@@ -128,9 +234,6 @@ export class IdsKycService {
     return { success: true, filePath };
   }
 
-  /**
-   * Read local file
-   */
   getLocalFilePath(filename: string): string {
     const filePath = path.join(process.cwd(), "uploads", filename);
     if (!fs.existsSync(filePath)) {

@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../../prisma.service";
-import { BookingStatus, BedStatus } from "@prisma/client";
+import { BookingStatus } from "@prisma/client";
 
 @Injectable()
 export class BookingsService {
@@ -9,180 +9,142 @@ export class BookingsService {
   // ─── AVAILABILITY ────────────────────────────────────────────────────────────
 
   /**
-   * Returns all beds for a property with their availability status for a date range.
-   * Conflicts are calculated by checking overlapping confirmed/checked-in bookings.
+   * Returns all rooms for a property with their availability status for a date range.
    */
-  async checkAvailability(propertyId: string, checkIn: Date, checkOut: Date) {
-    // Get rooms + beds for this property
-    const rooms = await this.prisma.room.findMany({
-      where: { roomType: { propertyId } },
+  async checkAvailability(propertyId: string, checkInAt: Date, checkOutAt: Date) {
+    const rooms = await this.prisma.client.room.findMany({
+      where: { propertyId },
       include: {
-        roomType: true,
-        beds: {
-          include: {
-            assignments: {
-              include: {
-                booking: {
-                  select: { checkIn: true, checkOut: true, status: true },
-                },
-              },
+        bookings: {
+          where: {
+            status: {
+              in: [
+                BookingStatus.CONFIRMED,
+                BookingStatus.CHECKED_IN,
+                BookingStatus.PAYMENT_PENDING,
+              ],
+            },
+            NOT: {
+              OR: [
+                { checkOutAt: { lte: checkInAt } },
+                { checkInAt: { gte: checkOutAt } },
+              ],
             },
           },
         },
       },
     });
 
-    // For each bed, check if it has a conflicting active booking
-    const result = rooms.map((room) => ({
-      roomId: room.id,
-      roomCode: room.code,
-      roomType: room.roomType.name,
-      kind: room.roomType.kind,
-      basePrice: room.roomType.basePrice,
-      beds: room.beds.map((bed) => {
-        const isConflicted = bed.assignments.some((a) => {
-          const active = (
-            [
-              BookingStatus.CONFIRMED,
-              BookingStatus.CHECKED_IN,
-              BookingStatus.PAYMENT_PENDING,
-            ] as string[]
-          ).includes(a.booking.status);
-          if (!active) return false;
-          const bCheckIn = new Date(a.booking.checkIn);
-          const bCheckOut = new Date(a.booking.checkOut);
-          // overlap: not (checkOut <= bCheckIn || checkIn >= bCheckOut)
-          return !(checkOut <= bCheckIn || checkIn >= bCheckOut);
-        });
-        return {
-          bedId: bed.id,
-          bedCode: bed.code,
-          available: !isConflicted && bed.status === BedStatus.AVAILABLE,
-        };
-      }),
-    }));
+    return rooms.map((room: any) => {
+      const occupancy = room.bookings.length;
+      const isAvailable = room.isDormitory 
+        ? occupancy < room.bunkCount 
+        : occupancy === 0;
 
-    return result;
+      return {
+        roomId: room.id,
+        roomNumber: room.roomNumber,
+        isDormitory: room.isDormitory,
+        bunkCount: room.bunkCount,
+        available: isAvailable,
+        currentOccupancy: occupancy,
+      };
+    });
   }
 
   // ─── CREATE BOOKING ──────────────────────────────────────────────────────────
 
   async createBooking(
     tenantId: string,
-    profileId: string,
+    guestId: string,
     data: {
       propertyId: string;
-      checkIn: string;
-      checkOut: string;
-      bedIds: string[];
-      specialReqs?: Record<string, unknown>;
+      checkInAt: string;
+      checkOutAt: string;
+      roomId?: string;
     }
   ) {
-    const checkIn = new Date(data.checkIn);
-    const checkOut = new Date(data.checkOut);
+    const checkInAt = new Date(data.checkInAt);
+    const checkOutAt = new Date(data.checkOutAt);
 
-    if (checkIn >= checkOut) {
+    if (checkInAt >= checkOutAt) {
       throw new BadRequestException("Check-out must be after check-in.");
     }
-    if (data.bedIds.length === 0) {
-      throw new BadRequestException("At least one bed must be selected.");
+
+    if (data.roomId) {
+      const availability = await this.checkAvailability(data.propertyId, checkInAt, checkOutAt);
+      const roomInfo = availability.find((r: any) => r.roomId === data.roomId);
+      if (!roomInfo) throw new BadRequestException("Room not found in property.");
+      if (!roomInfo.available) throw new BadRequestException(`Room ${roomInfo.roomNumber} is fully occupied for the selected dates.`);
     }
 
-    // Verify all beds are available
-    const availability = await this.checkAvailability(data.propertyId, checkIn, checkOut);
-    const allBeds = availability.flatMap((r) => r.beds);
-
-    for (const bedId of data.bedIds) {
-      const bedInfo = allBeds.find((b) => b.bedId === bedId);
-      if (!bedInfo) throw new BadRequestException(`Bed ${bedId} not found in property.`);
-      if (!bedInfo.available) throw new BadRequestException(`Bed ${bedInfo.bedCode} is not available for selected dates.`);
-    }
-
-    // Calculate price
-    const nightsDiff = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
-    const roomInfo = availability.find((r) => r.beds.some((b) => b.bedId === data.bedIds[0]));
-    const totalAmount = (roomInfo?.basePrice ?? 0) * nightsDiff * data.bedIds.length;
-
-    // Create booking with bed assignments
-    const booking = await this.prisma.booking.create({
+    return this.prisma.client.booking.create({
       data: {
         tenantId,
         propertyId: data.propertyId,
-        profileId,
+        guestId,
+        roomId: data.roomId || null,
         status: BookingStatus.PAYMENT_PENDING,
-        checkIn,
-        checkOut,
-        totalAmount,
-        specialReqs: (data.specialReqs as any) ?? {},
-        beds: {
-          create: data.bedIds.map((bedId) => ({ tenantId, bedId })),
-        },
+        checkInAt,
+        checkOutAt,
       },
-      include: { beds: { include: { bed: true } }, property: true },
+      include: { room: true, guest: true },
     });
-
-    return booking;
   }
 
   // ─── LISTING ─────────────────────────────────────────────────────────────────
 
-  async getBookingsForGuest(profileId: string) {
-    return this.prisma.booking.findMany({
-      where: { profileId },
+  async getBookingsForGuest(guestId: string) {
+    return this.prisma.client.booking.findMany({
+      where: { guestId },
       include: {
-        property: { select: { name: true, city: true, slug: true } },
-        beds: { include: { bed: { select: { code: true } } } },
+        room: true,
+        guest: true,
       },
       orderBy: { createdAt: "desc" },
     });
   }
 
   async getBookingsForProperty(tenantId: string, propertyId: string, status?: BookingStatus) {
-    return this.prisma.booking.findMany({
+    return this.prisma.client.booking.findMany({
       where: {
         tenantId,
         propertyId,
         ...(status ? { status } : {}),
       },
       include: {
-        profile: { select: { fullName: true } },
-        beds: { include: { bed: { select: { code: true, room: { select: { code: true } } } } } },
+        room: true,
+        guest: true,
       },
-      orderBy: { checkIn: "asc" },
+      orderBy: { checkInAt: "asc" },
     });
   }
 
-  async getBookingById(bookingId: string, profileId?: string) {
-    const booking = await this.prisma.booking.findUnique({
+  async getBookingById(bookingId: string, guestId?: string) {
+    const booking = await this.prisma.client.booking.findUnique({
       where: { id: bookingId },
       include: {
-        property: true,
-        beds: { include: { bed: { include: { room: { include: { roomType: true } } } } } },
-        guests: true,
-        requests: true,
-        payments: true,
-        feedback: true,
+        room: true,
+        guest: true,
       },
     });
 
     if (!booking) throw new NotFoundException("Booking not found.");
-    if (profileId && booking.profileId !== profileId) throw new ForbiddenException("Access denied.");
+    if (guestId && booking.guestId !== guestId) throw new ForbiddenException("Access denied.");
     return booking;
   }
 
   // ─── CANCEL ───────────────────────────────────────────────────────────────────
 
-  async cancelBooking(bookingId: string, profileId: string) {
-    const booking = await this.prisma.booking.findUnique({ where: { id: bookingId } });
-    if (!booking) throw new NotFoundException("Booking not found.");
-    if (booking.profileId !== profileId) throw new ForbiddenException("Access denied.");
+  async cancelBooking(bookingId: string, guestId: string) {
+    const booking = await this.getBookingById(bookingId, guestId);
 
     const cancellable: BookingStatus[] = [BookingStatus.DRAFT, BookingStatus.PAYMENT_PENDING, BookingStatus.CONFIRMED];
     if (!cancellable.includes(booking.status)) {
       throw new BadRequestException(`Cannot cancel a booking with status: ${booking.status}`);
     }
 
-    return this.prisma.booking.update({
+    return this.prisma.client.booking.update({
       where: { id: bookingId },
       data: { status: BookingStatus.CANCELLED_BY_GUEST },
     });
@@ -191,11 +153,11 @@ export class BookingsService {
   // ─── MANAGER: CONFIRM BOOKING ────────────────────────────────────────────────
 
   async confirmBooking(bookingId: string, tenantId: string) {
-    const booking = await this.prisma.booking.findUnique({ where: { id: bookingId } });
+    const booking = await this.prisma.client.booking.findUnique({ where: { id: bookingId } });
     if (!booking) throw new NotFoundException("Booking not found.");
     if (booking.tenantId !== tenantId) throw new ForbiddenException("Access denied.");
 
-    return this.prisma.booking.update({
+    return this.prisma.client.booking.update({
       where: { id: bookingId },
       data: { status: BookingStatus.CONFIRMED },
     });

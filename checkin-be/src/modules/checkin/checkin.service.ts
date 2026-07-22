@@ -1,75 +1,54 @@
 import { Injectable, BadRequestException, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma.service";
-import { BookingStatus, BedStatus } from "@prisma/client";
+import { BookingStatus } from "@prisma/client";
 import * as crypto from "crypto";
 
 @Injectable()
 export class CheckInService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ── WALK-IN CHECK-IN (Manager assigns bed to guest on-the-spot) ──────────────
+  // ── WALK-IN CHECK-IN (Manager assigns room to guest on-the-spot) ──────────────
   async walkInCheckIn(
     tenantId: string,
     data: {
       propertyId: string;
-      bedId: string;
+      roomId: string;
       fullName: string;
       phone: string;
       checkOut: string;
-      specialReqs?: Record<string, unknown>;
     }
   ) {
-    // 1. Verify bed is available
-    const bed = await this.prisma.bed.findUnique({ where: { id: data.bedId } });
-    if (!bed) throw new NotFoundException("Bed not found.");
-    if (bed.status !== BedStatus.AVAILABLE) {
-      throw new BadRequestException(`Bed is currently ${bed.status}. Cannot check-in.`);
-    }
+    // 1. Verify room exists
+    const room = await this.prisma.client.room.findUnique({ where: { id: data.roomId } });
+    if (!room) throw new NotFoundException("Room not found.");
 
-    // 2. Find or create a guest user record
-    let user = await this.prisma.user.findUnique({ where: { phone: data.phone } });
+    // 2. Find or create user
+    const cleanPhone = data.phone.replace(/\D/g, "").slice(-10);
+    let user = await this.prisma.client.user.findUnique({ where: { phoneNumber: cleanPhone } });
     if (!user) {
-      user = await this.prisma.user.create({
+      user = await this.prisma.client.user.create({
         data: {
-          phone: data.phone,
-          role: "CUSTOMER",
+          phoneNumber: cleanPhone,
           fullName: data.fullName,
         },
       });
     }
 
-    // 3. Ensure CustomerProfile exists
-    let profile = await this.prisma.customerProfile.findUnique({ where: { userId: user.id } });
-    if (!profile) {
-      profile = await this.prisma.customerProfile.create({
-        data: { userId: user.id, fullName: data.fullName },
-      });
-    }
-
-    // 4. Create a booking directly in CHECKED_IN state
-    const booking = await this.prisma.booking.create({
+    // 3. Create booking directly in CHECKED_IN state
+    const booking = await this.prisma.client.booking.create({
       data: {
         tenantId,
         propertyId: data.propertyId,
-        profileId: profile.id,
+        guestId: user.id,
+        roomId: data.roomId,
         status: BookingStatus.CHECKED_IN,
-        checkIn: new Date(),
-        checkOut: new Date(data.checkOut),
-        specialReqs: (data.specialReqs as any) ?? {},
-        beds: {
-          create: [{ tenantId, bedId: data.bedId }],
-        },
+        checkInAt: new Date(),
+        checkOutAt: new Date(data.checkOut),
       },
       include: {
-        beds: { include: { bed: true } },
-        profile: true,
+        room: true,
+        guest: true,
       },
-    });
-
-    // 5. Mark bed as OCCUPIED
-    await this.prisma.bed.update({
-      where: { id: data.bedId },
-      data: { status: BedStatus.OCCUPIED },
     });
 
     return booking;
@@ -77,23 +56,16 @@ export class CheckInService {
 
   // ── CONFIRM EXISTING RESERVATION → CHECK-IN ────────────────────────────────
   async checkInBooking(bookingId: string, tenantId: string) {
-    const booking = await this.prisma.booking.findUnique({
+    const booking = await this.prisma.client.booking.findUnique({
       where: { id: bookingId },
-      include: { beds: true },
     });
     if (!booking) throw new NotFoundException("Booking not found.");
     if (booking.tenantId !== tenantId) throw new BadRequestException("Access denied.");
-    if (booking.status !== BookingStatus.CONFIRMED) {
-      throw new BadRequestException(`Booking must be CONFIRMED to check-in. Current status: ${booking.status}`);
+    if (booking.status !== BookingStatus.CONFIRMED && booking.status !== BookingStatus.PAYMENT_PENDING) {
+      throw new BadRequestException(`Booking must be CONFIRMED or PAYMENT_PENDING to check-in. Current status: ${booking.status}`);
     }
 
-    // Mark beds OCCUPIED
-    await this.prisma.bed.updateMany({
-      where: { id: { in: booking.beds.map((b) => b.bedId) } },
-      data: { status: BedStatus.OCCUPIED },
-    });
-
-    return this.prisma.booking.update({
+    return this.prisma.client.booking.update({
       where: { id: bookingId },
       data: { status: BookingStatus.CHECKED_IN },
     });
@@ -101,9 +73,8 @@ export class CheckInService {
 
   // ── CHECK-OUT ──────────────────────────────────────────────────────────────
   async checkOutBooking(bookingId: string, tenantId: string, notes?: string) {
-    const booking = await this.prisma.booking.findUnique({
+    const booking = await this.prisma.client.booking.findUnique({
       where: { id: bookingId },
-      include: { beds: true },
     });
     if (!booking) throw new NotFoundException("Booking not found.");
     if (booking.tenantId !== tenantId) throw new BadRequestException("Access denied.");
@@ -111,27 +82,21 @@ export class CheckInService {
       throw new BadRequestException(`Booking must be CHECKED_IN to check-out. Current: ${booking.status}`);
     }
 
-    // Mark beds as DIRTY (needs cleaning)
-    await this.prisma.bed.updateMany({
-      where: { id: { in: booking.beds.map((b) => b.bedId) } },
-      data: { status: BedStatus.DIRTY },
-    });
-
     // Update booking status
-    const updated = await this.prisma.booking.update({
+    const updated = await this.prisma.client.booking.update({
       where: { id: bookingId },
       data: { status: BookingStatus.CHECKED_OUT },
     });
 
-    // Log audit
-    await this.prisma.auditLog.create({
+    // Log platform audit
+    await this.prisma.client.platformAuditLog.create({
       data: {
-        tenantId,
-        actorId: "SYSTEM",
+        userId: booking.guestId,
         action: "CHECK_OUT",
-        entity: "Booking",
+        entityType: "Booking",
         entityId: bookingId,
-        meta: { notes: notes ?? "" },
+        payload: { notes: notes ?? "" },
+        ipAddress: "127.0.0.1",
       },
     });
 
@@ -139,22 +104,22 @@ export class CheckInService {
   }
 
   // ── GENERATE DIGITAL PASS ─────────────────────────────────────────────────
-  async getDigitalPass(bookingId: string, profileId: string) {
-    const booking = await this.prisma.booking.findUnique({
+  async getDigitalPass(bookingId: string, guestId: string) {
+    const booking = await this.prisma.client.booking.findUnique({
       where: { id: bookingId },
       include: {
-        property: { select: { name: true, city: true, address: true, checkInAt: true, checkOutAt: true } },
-        beds: { include: { bed: { include: { room: { include: { roomType: true } } } } } },
-        profile: { select: { fullName: true } },
+        property: true,
+        room: true,
+        guest: true,
       },
     });
     if (!booking) throw new NotFoundException("Booking not found.");
-    if (booking.profileId !== profileId) throw new BadRequestException("Access denied.");
+    if (booking.guestId !== guestId) throw new BadRequestException("Access denied.");
 
-    // Generate a deterministic QR payload (hash of bookingId + checkIn)
+    // Generate a deterministic QR payload
     const qrPayload = crypto
       .createHash("sha256")
-      .update(bookingId + booking.checkIn.toISOString())
+      .update(bookingId + booking.checkInAt.toISOString())
       .digest("hex")
       .slice(0, 16)
       .toUpperCase();
@@ -162,30 +127,18 @@ export class CheckInService {
     return {
       bookingId,
       qrPayload,
-      guestName: booking.profile.fullName,
-      property: booking.property,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
+      guestName: booking.guest.fullName,
+      property: {
+        name: booking.property.name,
+        address: booking.property.address,
+      },
+      checkInAt: booking.checkInAt,
+      checkOutAt: booking.checkOutAt,
       status: booking.status,
-      beds: booking.beds.map((bb) => ({
-        bedCode: bb.bed.code,
-        roomCode: bb.bed.room.code,
-        roomType: bb.bed.room.roomType.name,
-      })),
+      room: booking.room ? {
+        roomNumber: booking.room.roomNumber,
+        isDormitory: booking.room.isDormitory,
+      } : null,
     };
-  }
-
-  // ── MARK BED CLEAN (Housekeeping) ──────────────────────────────────────────
-  async markBedClean(bedId: string, tenantId: string) {
-    const bed = await this.prisma.bed.findUnique({ where: { id: bedId } });
-    if (!bed) throw new NotFoundException("Bed not found.");
-    if (bed.tenantId !== tenantId) throw new BadRequestException("Access denied.");
-    if (bed.status !== BedStatus.DIRTY) {
-      throw new BadRequestException("Bed is not in DIRTY state.");
-    }
-    return this.prisma.bed.update({
-      where: { id: bedId },
-      data: { status: BedStatus.AVAILABLE },
-    });
   }
 }
