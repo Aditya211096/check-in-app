@@ -11,31 +11,25 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_ID: traces-production-39211
+  PROJECT_ID: traces-checkin-app
+  SERVICE_NAME: checkin-backend
   REGION: us-central1
-  ARTIFACT_REPOSITORY: traces-containers
-  SERVICE_NAME: traces-backend-api
-  WIF_PROVIDER: projects/1234567890/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-  WIF_SERVICE_ACCOUNT: github-deployer@traces-production-39211.iam.gserviceaccount.com
+  REGISTRY: us-central1-docker.pkg.dev
+  REPO: cloud-run-source-deploy
 
 jobs:
   deployment-pipeline:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
 
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # Authenticate securely with GCP using OIDC Workload Identity Federation
-      - name: Authenticate with GCP via Workload Identity
+      # Authenticate using standard service account key credentials
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          token_format: access_token
-          workload_identity_provider: ${{ env.WIF_PROVIDER }}
-          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Setup Node.js Environment
         uses: actions/setup-node@v4
@@ -44,7 +38,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'checkin-be/package-lock.json'
 
-      # Run database updates via the direct port before building the container
+      # Run database updates over database session connection prior to builds
       - name: Run Database Schema Migrations
         run: |
           cd checkin-be
@@ -52,19 +46,20 @@ jobs:
           npx prisma generate
           npx prisma migrate deploy
         env:
-          DIRECT_URL: ${{ secrets.PROD_DATABASE_DIRECT_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DATABASE_URL }}
 
       # Authenticate Docker client against GCP Artifact Registry
       - name: Configure GCP Registry Authentication
         run: |
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+          gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
       # Build, tag, and publish the container image to GCP Artifact Registry
       - name: Compile and Push Container Image
         run: |
           cd checkin-be
           IMAGE_TAG=${{ github.sha }}
-          IMAGE_URI=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ env.SERVICE_NAME }}:${IMAGE_TAG}
+          IMAGE_URI=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE_NAME }}:${IMAGE_TAG}
           
           docker build \
             --build-arg DIRECT_URL="postgresql://placeholder_user:placeholder_password@localhost:5432/placeholder_db" \
@@ -78,11 +73,13 @@ jobs:
         with:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.REGION }}
-          image: ${{ env.IMAGE_URI }}
+          image: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
           flags: '--port=8080 --allow-unauthenticated --max-instances=10 --min-instances=1'
           env_vars: |
             NODE_ENV=production
-            DATABASE_URL=${{ secrets.PROD_DATABASE_POOLED_URL }}
-            DIRECT_URL=${{ secrets.PROD_DATABASE_DIRECT_URL }}
-            JWT_SECRET=${{ secrets.PROD_JWT_SECRET }}
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            JWT_SECRET=${{ secrets.JWT_SECRET || 'traces_sunrise_secret_key_192837' }}
+            WHATSAPP_API_TOKEN=${{ secrets.WHATSAPP_API_TOKEN }}
+            WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+            WHATSAPP_BUSINESS_ACCOUNT_ID=${{ secrets.WHATSAPP_BUSINESS_ACCOUNT_ID }}
             ALLOWED_ORIGINS=https://aditya211096.github.io
