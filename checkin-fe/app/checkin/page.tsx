@@ -109,7 +109,10 @@ function TokenPreCheckinContent() {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://checkin-backend-eo2tmdx7lq-uc.a.run.app";
       const res = await fetch(`${baseUrl}/notifications/whatsapp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-tenant-id": "varanasi-sunrise-ghat"
+        },
         body: JSON.stringify({ phone: `91${phone.replace(/\D/g, "").slice(-10)}` }),
       });
       const data = await res.json();

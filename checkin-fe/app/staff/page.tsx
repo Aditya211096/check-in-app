@@ -78,7 +78,8 @@ export default function GroundStaffDashboard() {
       try {
         const res = await fetch(`${baseUrl}/requests/property/prop-1`, {
           headers: {
-            "Authorization": `Bearer mock-token-8586816812` // manager mock authorization token
+            "Authorization": `Bearer mock-token-8586816812`,
+            "x-tenant-id": "varanasi-sunrise-ghat"
           }
         });
         const data = await res.json();
@@ -118,7 +119,8 @@ export default function GroundStaffDashboard() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer mock-token-8586816812`
+          "Authorization": `Bearer mock-token-8586816812`,
+          "x-tenant-id": "varanasi-sunrise-ghat"
         },
         body: JSON.stringify(payload || {})
       });

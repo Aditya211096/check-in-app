@@ -108,7 +108,10 @@ export default function ManagerDashboard() {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://checkin-backend-eo2tmdx7lq-uc.a.run.app";
       await fetch(`${baseUrl}/notifications/whatsapp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-tenant-id": "varanasi-sunrise-ghat"
+        },
         body: JSON.stringify({ phone: cleanPhone, message: rawMessage }),
       });
       showToast(`⚡ WhatsApp Pre-Checkin link sent directly to ${arrival.guestName} (${arrival.phone}) via Meta Cloud API!`);
