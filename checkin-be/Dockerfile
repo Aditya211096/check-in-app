@@ -8,7 +8,7 @@ FROM node:20-slim AS builder
 WORKDIR /app
 
 # Install system utilities required for Prisma compilation
-RUN apt-get update && apt-get install -y openssl openssl-data && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Install project packages
 COPY package*.json ./
