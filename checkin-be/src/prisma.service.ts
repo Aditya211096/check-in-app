@@ -17,6 +17,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       max: Number(process.env.DATABASE_MAX_CONNECTIONS) || 2,
       idleTimeoutMillis: 15000,
       connectionTimeoutMillis: 5000,
+      ssl: process.env.NODE_ENV === 'production' || dbUrl.includes('sslmode') ? { rejectUnauthorized: false } : undefined,
     });
     
     const adapter = new PrismaPg(pool);
