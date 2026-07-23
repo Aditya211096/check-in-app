@@ -44,7 +44,8 @@ jobs:
           cd checkin-be
           npm ci
           npx prisma generate
-          npx prisma db push
+          npx prisma db push --accept-data-loss --force-reset
+          npm run prisma:seed
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DATABASE_URL }}
